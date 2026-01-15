@@ -1,0 +1,65 @@
+{
+  "title": "XRay / Traffic & Health",
+  "panels": [
+    {
+      "title": "Exporter scrape error (0 — ок)",
+      "width": 3,
+      "expr": [
+        "max_over_time(json_exporter_last_scrape_error[5m])"
+      ],
+      "showLegend": false
+    },
+    {
+      "title": "Total traffic (bytes/s)",
+      "width": 9,
+      "expr": [
+        "sum(rate(traffic_downlink_bytes_total[5m]))",
+        "sum(rate(traffic_uplink_bytes_total[5m]))"
+      ],
+      "alias": ["downlink", "uplink"]
+    },
+    {
+      "title": "Inbound ↓ bytes/s by name",
+      "width": 6,
+      "expr": [
+        "sum by (name)(rate(traffic_downlink_bytes_total{section=\"inbound\"}[5m]))"
+      ]
+    },
+    {
+      "title": "Inbound ↑ bytes/s by name",
+      "width": 6,
+      "expr": [
+        "sum by (name)(rate(traffic_uplink_bytes_total{section=\"inbound\"}[5m]))"
+      ]
+    },
+    {
+      "title": "Outbound ↓ bytes/s by name",
+      "width": 6,
+      "expr": [
+        "sum by (name)(rate(traffic_downlink_bytes_total{section=\"outbound\"}[5m]))"
+      ]
+    },
+    {
+      "title": "Outbound ↑ bytes/s by name",
+      "width": 6,
+      "expr": [
+        "sum by (name)(rate(traffic_uplink_bytes_total{section=\"outbound\"}[5m]))"
+      ]
+    },
+    {
+      "title": "Users ↓ bytes/s by user",
+      "width": 6,
+      "expr": [
+        "sum by (name)(rate(traffic_downlink_bytes_total{section=\"user\"}[5m]))"
+      ]
+    },
+    {
+      "title": "Users ↑ bytes/s by user",
+      "width": 6,
+      "expr": [
+        "sum by (name)(rate(traffic_uplink_bytes_total{section=\"user\"}[5m]))"
+      ]
+    }
+  ]
+}
+

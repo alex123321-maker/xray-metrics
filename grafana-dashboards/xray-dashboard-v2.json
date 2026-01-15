@@ -1,0 +1,211 @@
+{
+  "uid": "xray-traffic-ru",
+  "title": "Трафик и здоровье (XRay)",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "rate",
+        "label": "Окно скорости",
+        "query": "1m,5m,15m",
+        "datasource": null,
+        "refresh": 2,
+        "current": { "selected": true, "text": "5m", "value": "5m" },
+        "options": [
+          { "text": "1m", "value": "1m" },
+          { "text": "5m", "value": "5m", "selected": true },
+          { "text": "15m", "value": "15m" }
+        ]
+      },
+      {
+        "type": "query",
+        "name": "inbound",
+        "label": "Имя инбаунда",
+        "datasource": { "type": "prometheus", "uid": "VM" },
+        "query": "label_values(traffic_uplink_bytes_total{section=\"inbound\"}, name)",
+        "includeAll": true,
+        "refresh": 2
+      },
+      {
+        "type": "query",
+        "name": "user",
+        "label": "Пользователь",
+        "datasource": { "type": "prometheus", "uid": "VM" },
+        "query": "label_values(traffic_uplink_bytes_total{section=\"user\"}, name)",
+        "includeAll": true,
+        "refresh": 2
+      },
+      {
+        "type": "query",
+        "name": "outbound",
+        "label": "Внешний канал (observatory)",
+        "datasource": { "type": "prometheus", "uid": "VM" },
+        "query": "label_values(observatory_alive, outbound_tag)",
+        "includeAll": true,
+        "refresh": 2,
+        "current": { "selected": true, "text": "direct", "value": "direct" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Время работы экспортёра",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "time() - process_start_time_seconds", "instant": true }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "stat",
+      "title": "Открытые дескрипторы",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "process_open_fds", "instant": true }]
+    },
+    {
+      "type": "stat",
+      "title": "Нагрузка на FDs (%)",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "process_open_fds / process_max_fds * 100", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green" }, { "color": "orange", "value": 70 }, { "color": "red", "value": 90 } ] }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Observatory: статус",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "max by (outbound_tag) (observatory_alive{outbound_tag=~\"$outbound\"})", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": 0 }, { "color": "green", "value": 1 } ] }
+        }
+      }
+    },
+
+    {
+      "type": "timeseries",
+      "title": "CPU экспортёра (%)",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "rate(process_cpu_seconds_total[$rate]) * 100" }],
+      "fieldConfig": { "defaults": { "unit": "percent" } },
+      "options": { "legend": { "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Память (RSS)",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "process_resident_memory_bytes" }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "options": { "legend": { "showLegend": false }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "type": "row",
+      "title": "Инбаунды (section = inbound)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 10 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Инбаунды: суммарный трафик (байт/с)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 11 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(traffic_downlink_bytes_total{section=\"inbound\",name=~\"$inbound\"}[$rate]))", "legendFormat": "даунлинк" },
+        { "refId": "B", "expr": "sum(rate(traffic_uplink_bytes_total{section=\"inbound\",name=~\"$inbound\"}[$rate]))", "legendFormat": "аплинк" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps" } },
+      "options": { "legend": { "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Инбаунды: даунлинк по именам (стек)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (name) (rate(traffic_downlink_bytes_total{section=\"inbound\",name=~\"$inbound\"}[$rate]))", "legendFormat": "{{name}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "stacking": { "mode": "normal", "group": "A" } } } },
+      "options": { "legend": { "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Инбаунды: аплинк по именам (стек)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (name) (rate(traffic_uplink_bytes_total{section=\"inbound\",name=~\"$inbound\"}[$rate]))", "legendFormat": "{{name}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "stacking": { "mode": "normal", "group": "A" } } } },
+      "options": { "legend": { "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "type": "row",
+      "title": "Пользователи (section = user)",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Пользователи: суммарный трафик (байт/с)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(traffic_downlink_bytes_total{section=\"user\",name=~\"$user\"}[$rate]))", "legendFormat": "даунлинк" },
+        { "refId": "B", "expr": "sum(rate(traffic_uplink_bytes_total{section=\"user\",name=~\"$user\"}[$rate]))", "legendFormat": "аплинк" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps" } },
+      "options": { "legend": { "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Пользователи: даунлинк по именам (стек)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (name) (rate(traffic_downlink_bytes_total{section=\"user\",name=~\"$user\"}[$rate]))", "legendFormat": "{{name}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "stacking": { "mode": "normal", "group": "U" } } } },
+      "options": { "legend": { "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Пользователи: аплинк по именам (стек)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        { "refId": "A", "expr": "sum by (name) (rate(traffic_uplink_bytes_total{section=\"user\",name=~\"$user\"}[$rate]))", "legendFormat": "{{name}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "stacking": { "mode": "normal", "group": "U" } } } },
+      "options": { "legend": { "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    },
+
+    {
+      "type": "row",
+      "title": "Observatory",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 44 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Observatory: задержка (сек.)",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 45 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [ { "refId": "A", "expr": "max by (outbound_tag) (observatory_delay_seconds{outbound_tag=~\"$outbound\"})" } ],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "options": { "legend": { "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } }
+    }
+  ]
+}
+

@@ -1,0 +1,110 @@
+{
+  "__requires": [
+    { "type": "grafana", "id": "grafana", "name": "Grafana", "version": "9.5.0" },
+    { "type": "datasource", "id": "prometheus", "name": "Prometheus", "version": "1.0.0" },
+    { "type": "panel", "id": "timeseries", "name": "Time series", "version": "" },
+    { "type": "panel", "id": "stat", "name": "Stat", "version": "" },
+    { "type": "panel", "id": "bargauge", "name": "Bar gauge", "version": "" },
+    { "type": "panel", "id": "barchart", "name": "Bar chart", "version": "" },
+    { "type": "panel", "id": "piechart", "name": "Pie chart", "version": "" },
+    { "type": "panel", "id": "state-timeline", "name": "State timeline", "version": "" }
+  ],
+  "annotations": {"list": [{"builtIn": 1, "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": true, "hide": false, "iconColor": "rgba(255, 96, 96, 1)", "name": "События Grafana", "type": "dashboard"}]},
+  "description": "Мониторинг Xray: состояние json_exporter, метрики наблюдателя (observatory) и трафика. Пользовательские метрики отделены от секционных (inbound/outbound).",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Статус сбора json_exporter",
+      "description": "Ошибка последнего сбора за 5 минут.",
+      "datasource": {"type": "prometheus", "uid": "VM"},
+      "gridPos": {"h": 7, "w": 4, "x": 0, "y": 0},
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "value"},
+      "targets": [{"refId": "A", "expr": "max_over_time(json_exporter_last_scrape_error[5m])", "legendFormat": "", "datasource": {"type": "prometheus", "uid": "VM"}}],
+      "fieldConfig": {"defaults": {"noValue": "нет данных", "unit": "none", "mappings": [{"type": "value", "options": {"0": {"text": "Сбор успешен"}, "1": {"text": "Ошибка сбора"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.5}]}}, "overrides": []}
+    },
+    {
+      "id": 2,
+      "type": "state-timeline",
+      "title": "Наблюдатель жив + статус экспортёра",
+      "description": "Объединённый статус: ряды по outbound и отдельная строка \"exporter\". 1 — зелёный (OK), 0 — красный (ошибка/недоступен).",
+      "datasource": {"type": "prometheus", "uid": "VM"},
+      "gridPos": {"h": 8, "w": 10, "x": 4, "y": 0},
+      "options": {"legend": {"displayMode": "list", "placement": "right"}, "mergeValues": true},
+      "targets": [
+        {"refId": "A", "expr": "label_replace(1 - max_over_time(json_exporter_last_scrape_error[1m]), \"outbound_tag\", \"exporter\", \"__name__\", \".*\")", "legendFormat": "exporter", "datasource": {"type": "prometheus", "uid": "VM"}},
+        {"refId": "B", "expr": "max by (outbound_tag) (observatory_alive{outbound_tag=~\"$outbound\"})", "legendFormat": "{{outbound_tag}}", "datasource": {"type": "prometheus", "uid": "VM"}}
+      ],
+      "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {"0": {"text": "Нет"}, "1": {"text": "Жив"}}}], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Последний успешный ответ",
+      "description": "Сколько времени назад отвечал наблюдатель по каждому outbound.",
+      "datasource": {"type": "prometheus", "uid": "VM"},
+      "gridPos": {"h": 7, "w": 10, "x": 14, "y": 0},
+      "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": true}, "textMode": "value_and_name"},
+      "targets": [{"refId": "A", "expr": "time() - max by (outbound_tag) (observatory_last_seen_timestamp_seconds{outbound_tag=~\"$outbound\"})", "legendFormat": "назад — {{outbound_tag}}", "datasource": {"type": "prometheus", "uid": "VM"}}],
+      "fieldConfig": {"defaults": {"unit": "s", "decimals": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 60}, {"color": "red", "value": 300}]}}, "overrides": []}
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "Скорость ВХОДящего по секциям (без user)", "description": "Агрегированная скорость входящего трафика по секциям, исключая 'user'.", "datasource": {"type": "prometheus", "uid": "VM"}, "gridPos": {"h": 11, "w": 12, "x": 0, "y": 7}, "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "mean", "p95"]}, "tooltip": {"mode": "multi", "sort": "desc"}, "stacking": {"mode": "normal", "group": "A"}}, "targets": [{"refId": "A", "expr": "sum by (section) (rate(traffic_downlink_bytes_total{section!=\"user\", section=~\"$section_traffic\"}[$__rate_interval]))", "legendFormat": "{{section}}", "datasource": {"type": "prometheus", "uid": "VM"}}], "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "lineWidth": 2}}, "overrides": []}
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Скорость ИСХОДящего по секциям (без user)", "description": "Агрегированная скорость исходящего трафика по секциям, исключая 'user'.", "datasource": {"type": "prometheus", "uid": "VM"}, "gridPos": {"h": 11, "w": 12, "x": 12, "y": 7}, "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "mean", "p95"]}, "tooltip": {"mode": "multi", "sort": "desc"}, "stacking": {"mode": "normal", "group": "A"}}, "targets": [{"refId": "A", "expr": "sum by (section) (rate(traffic_uplink_bytes_total{section!=\"user\", section=~\"$section_traffic\"}[$__rate_interval]))", "legendFormat": "{{section}}", "datasource": {"type": "prometheus", "uid": "VM"}}], "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "lineWidth": 2}}, "overrides": []}
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Топ $topn пользователей по скорости ВХОДящего", "description": "Пользователи (section=user), top-N по входящей скорости.", "datasource": {"type": "prometheus", "uid": "VM"}, "gridPos": {"h": 11, "w": 12, "x": 0, "y": 18}, "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "mean", "p95"]}, "tooltip": {"mode": "multi", "sort": "desc"}, "stacking": {"mode": "none", "group": "B"}}, "targets": [{"refId": "A", "expr": "topk($topn, sum by (name) (rate(traffic_downlink_bytes_total{section=\"user\", name=~\"$user\"}[$__rate_interval])))", "legendFormat": "{{name}}", "datasource": {"type": "prometheus", "uid": "VM"}}], "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "lineWidth": 2}}, "overrides": []}
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "Топ $topn пользователей по скорости ИСХОДящего", "description": "Пользователи (section=user), top-N по исходящей скорости.", "datasource": {"type": "prometheus", "uid": "VM"}, "gridPos": {"h": 11, "w": 12, "x": 12, "y": 18}, "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "mean", "p95"]}, "tooltip": {"mode": "multi", "sort": "desc"}, "stacking": {"mode": "none", "group": "B"}}, "targets": [{"refId": "A", "expr": "topk($topn, sum by (name) (rate(traffic_uplink_bytes_total{section=\"user\", name=~\"$user\"}[$__rate_interval])))", "legendFormat": "{{name}}", "datasource": {"type": "prometheus", "uid": "VM"}}], "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "lineWidth": 2}}, "overrides": []}
+    },
+    {
+      "id": 12, "type": "piechart", "title": "Доля пользователей в общем трафике (за период)", "description": "Доли пользователей по совокупному трафику (вход+исход) за выбранный период.", "datasource": {"type": "prometheus", "uid": "VM"}, "gridPos": {"h": 11, "w": 12, "x": 0, "y": 29}, "options": {"legend": {"displayMode": "list", "placement": "right"}, "pieType": "pie", "displayLabels": ["name", "percent", "value"], "tooltip": {"mode": "multi"}, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}, "targets": [{"refId": "A", "expr": "sum by (name) (increase(traffic_downlink_bytes_total{section=\"user\", name=~\"$user\"}[$__range]) + increase(traffic_uplink_bytes_total{section=\"user\", name=~\"$user\"}[$__range]))", "legendFormat": "{{name}}", "instant": true, "datasource": {"type": "prometheus", "uid": "VM"}}], "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+    },
+    {
+      "id": 15, "type": "barchart", "title": "Объёмы по пользователям (вход+исход, Top $topn)", "description": "Суммарные объёмы за период по пользователям (section=user).", "datasource": {"type": "prometheus", "uid": "VM"}, "gridPos": {"h": 11, "w": 12, "x": 12, "y": 29}, "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "orientation": "horizontal", "tooltip": {"show": true, "mode": "multi"}, "xTickLabelRotation": 0, "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}, "targets": [{"refId": "A", "expr": "topk($topn, sum by (name) (increase(traffic_downlink_bytes_total{section=\"user\", name=~\"$user\"}[$__range]) + increase(traffic_uplink_bytes_total{section=\"user\", name=~\"$user\"}[$__range])))", "legendFormat": "{{name}}", "instant": true, "datasource": {"type": "prometheus", "uid": "VM"}}], "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Скорость всего инстанса (in/out/total)",
+      "description": "Суммарные скорости по всему инстансу (секционные метрики без section=\"user\"). Полезно видеть тренд общей нагрузки.",
+      "datasource": {"type": "prometheus", "uid": "VM"},
+      "gridPos": {"h": 9, "w": 24, "x": 0, "y": 40},
+      "options": {"legend": {"displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "mean", "p95"]}, "tooltip": {"mode": "multi", "sort": "desc"}, "stacking": {"mode": "none", "group": "C"}},
+      "targets": [
+        {"refId": "A", "expr": "sum(rate(traffic_downlink_bytes_total{section!=\"user\"}[$__rate_interval]))", "legendFormat": "inbound", "datasource": {"type": "prometheus", "uid": "VM"}},
+        {"refId": "B", "expr": "sum(rate(traffic_uplink_bytes_total{section!=\"user\"}[$__rate_interval]))", "legendFormat": "outbound", "datasource": {"type": "prometheus", "uid": "VM"}},
+        {"refId": "C", "expr": "sum(rate(traffic_downlink_bytes_total{section!=\"user\"}[$__rate_interval])) + sum(rate(traffic_uplink_bytes_total{section!=\"user\"}[$__rate_interval]))", "legendFormat": "total", "datasource": {"type": "prometheus", "uid": "VM"}}
+      ],
+      "fieldConfig": {"defaults": {"unit": "Bps", "custom": {"drawStyle": "line", "lineWidth": 2}}, "overrides": []}
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": ["xray", "observatory", "traffic"],
+  "templating": {
+    "list": [
+      {"name": "section_traffic", "label": "section (без user)", "type": "query", "hide": 0, "includeAll": true, "allValue": ".*", "multi": true, "query": {"query": "label_values(traffic_downlink_bytes_total{section=~\".*\",section!=\"user\"}, section)", "refId": "StandardVariableQuery"}, "refresh": 2, "datasource": {"type": "prometheus", "uid": "VM"}, "current": {"selected": true, "text": "All", "value": "$__all"}, "options": []},
+      {"name": "user", "label": "user (name)", "type": "query", "hide": 0, "includeAll": true, "allValue": ".*", "multi": true, "query": {"query": "label_values(traffic_downlink_bytes_total{section=\"user\"}, name)", "refId": "StandardVariableQuery"}, "refresh": 2, "datasource": {"type": "prometheus", "uid": "VM"}, "current": {"selected": true, "text": "All", "value": "$__all"}, "options": []},
+      {"name": "outbound", "label": "outbound", "type": "query", "hide": 0, "includeAll": true, "allValue": ".*", "multi": true, "query": {"query": "label_values(observatory_alive, outbound_tag)", "refId": "StandardVariableQuery"}, "refresh": 2, "datasource": {"type": "prometheus", "uid": "VM"}, "current": {"selected": true, "text": "All", "value": "$__all"}, "options": []},
+      {"name": "topn", "label": "Топ N", "type": "constant", "hide": 0, "query": "10", "current": {"selected": false, "text": "10", "value": "10"}}
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "timepicker": {"refresh_intervals": ["5s", "10s", "15s", "30s", "1m", "5m"], "time_options": ["15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]},
+  "timezone": "",
+  "title": "Xray / Трафик и здоровье (v4)",
+  "uid": "VM",
+  "version": 7,
+  "weekStart": ""
+}
+

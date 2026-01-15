@@ -1,0 +1,124 @@
+modules:
+  xray:
+    metrics:
+      # ---------- observatory (для outbound=direct) ----------
+      - name: xray_observatory_alive
+        type: value
+        path: "{.observatory.direct.alive}"
+        labels: { outbound: "direct" }
+      - name: xray_observatory_delay_ms
+        type: value
+        path: "{.observatory.direct.delay}"
+        labels: { outbound: "direct" }
+
+      # ---------- INBOUND ----------
+      - name: xray_inbound_uplink_bytes_total
+        type: value
+        path: "{.stats.inbound.api.uplink}"
+        labels: { inbound: "api" }
+      - name: xray_inbound_downlink_bytes_total
+        type: value
+        path: "{.stats.inbound.api.downlink}"
+        labels: { inbound: "api" }
+
+      - name: xray_inbound_uplink_bytes_total
+        type: value
+        path: "{.stats.inbound['inbound-194.147.148.78:34011'].uplink}"
+        labels: { inbound: "inbound-194.147.148.78:34011" }
+      - name: xray_inbound_downlink_bytes_total
+        type: value
+        path: "{.stats.inbound['inbound-194.147.148.78:34011'].downlink}"
+        labels: { inbound: "inbound-194.147.148.78:34011" }
+
+      - name: xray_inbound_uplink_bytes_total
+        type: value
+        path: "{.stats.inbound['inbound-21418'].uplink}"
+        labels: { inbound: "inbound-21418" }
+      - name: xray_inbound_downlink_bytes_total
+        type: value
+        path: "{.stats.inbound['inbound-21418'].downlink}"
+        labels: { inbound: "inbound-21418" }
+
+      - name: xray_inbound_uplink_bytes_total
+        type: value
+        path: "{.stats.inbound['inbound-27692'].uplink}"
+        labels: { inbound: "inbound-27692" }
+      - name: xray_inbound_downlink_bytes_total
+        type: value
+        path: "{.stats.inbound['inbound-27692'].downlink}"
+        labels: { inbound: "inbound-27692" }
+
+      - name: xray_inbound_uplink_bytes_total
+        type: value
+        path: "{.stats.inbound['inbound-8443'].uplink}"
+        labels: { inbound: "inbound-8443" }
+      - name: xray_inbound_downlink_bytes_total
+        type: value
+        path: "{.stats.inbound['inbound-8443'].downlink}"
+        labels: { inbound: "inbound-8443" }
+
+      # ---------- OUTBOUND ----------
+      - name: xray_outbound_uplink_bytes_total
+        type: value
+        path: "{.stats.outbound.direct.uplink}"
+        labels: { outbound: "direct" }
+      - name: xray_outbound_downlink_bytes_total
+        type: value
+        path: "{.stats.outbound.direct.downlink}"
+        labels: { outbound: "direct" }
+
+      - name: xray_outbound_uplink_bytes_total
+        type: value
+        path: "{.stats.outbound.blocked.uplink}"
+        labels: { outbound: "blocked" }
+      - name: xray_outbound_downlink_bytes_total
+        type: value
+        path: "{.stats.outbound.blocked.downlink}"
+        labels: { outbound: "blocked" }
+
+      # ---------- USERS ----------
+      - name: xray_user_uplink_bytes_total
+        type: value
+        path: "{.stats.user['8cpu'].uplink}"
+        labels: { user: "8cpu" }
+      - name: xray_user_downlink_bytes_total
+        type: value
+        path: "{.stats.user['8cpu'].downlink}"
+        labels: { user: "8cpu" }
+
+      - name: xray_user_uplink_bytes_total
+        type: value
+        path: "{.stats.user.ahj7cyw6.uplink}"
+        labels: { user: "ahj7cyw6" }
+      - name: xray_user_downlink_bytes_total
+        type: value
+        path: "{.stats.user.ahj7cyw6.downlink}"
+        labels: { user: "ahj7cyw6" }
+
+      - name: xray_user_uplink_bytes_total
+        type: value
+        path: "{.stats.user.as185uq3.uplink}"
+        labels: { user: "as185uq3" }
+      - name: xray_user_downlink_bytes_total
+        type: value
+        path: "{.stats.user.as185uq3.downlink}"
+        labels: { user: "as185uq3" }
+
+      - name: xray_user_uplink_bytes_total
+        type: value
+        path: "{.stats.user.sap2rtoa.uplink}"
+        labels: { user: "sap2rtoa" }
+      - name: xray_user_downlink_bytes_total
+        type: value
+        path: "{.stats.user.sap2rtoa.downlink}"
+        labels: { user: "sap2rtoa" }
+
+      - name: xray_user_uplink_bytes_total
+        type: value
+        path: "{.stats.user.uiyda699.uplink}"
+        labels: { user: "uiyda699" }
+      - name: xray_user_downlink_bytes_total
+        type: value
+        path: "{.stats.user.uiyda699.downlink}"
+        labels: { user: "uiyda699" }
+

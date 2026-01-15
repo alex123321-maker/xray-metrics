@@ -1,0 +1,187 @@
+{
+  "uid": "xray-traffic-core",
+  "title": "XRay / Traffic & Health (core)",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-24h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "rate",
+        "label": "Rate window",
+        "query": "1m,5m,15m",
+        "datasource": null,
+        "refresh": 2,
+        "current": { "selected": true, "text": "5m", "value": "5m" },
+        "options": [
+          { "text": "1m", "value": "1m", "selected": false },
+          { "text": "5m", "value": "5m", "selected": true },
+          { "text": "15m", "value": "15m", "selected": false }
+        ]
+      },
+      {
+        "type": "query",
+        "name": "section",
+        "label": "traffic section",
+        "datasource": { "type": "prometheus", "uid": "VM" },
+        "query": "label_values(traffic_uplink_bytes_total, section)",
+        "includeAll": true,
+        "refresh": 2
+      },
+      {
+        "type": "query",
+        "name": "name",
+        "label": "traffic name",
+        "datasource": { "type": "prometheus", "uid": "VM" },
+        "query": "label_values(traffic_uplink_bytes_total{section=~\"$section\"}, name)",
+        "includeAll": true,
+        "refresh": 2
+      },
+      {
+        "type": "query",
+        "name": "outbound",
+        "label": "observatory outbound_tag",
+        "datasource": { "type": "prometheus", "uid": "VM" },
+        "query": "label_values(observatory_alive, outbound_tag)",
+        "includeAll": true,
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Exporter uptime",
+      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "time() - process_start_time_seconds", "instant": true }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "type": "stat",
+      "title": "Open FDs",
+      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "process_open_fds", "instant": true }]
+    },
+    {
+      "type": "stat",
+      "title": "FDs usage (%)",
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "process_open_fds / process_max_fds * 100", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [ { "color": "green" }, { "color": "orange", "value": 70 }, { "color": "red", "value": 90 } ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Observatory alive (max by outbound)",
+      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "max by (outbound_tag) (observatory_alive{outbound_tag=~\"$outbound\"})", "instant": true }]
+    },
+    {
+      "type": "stat",
+      "title": "Last seen: ago (s)",
+      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "clamp_min(time() - max by (outbound_tag) (observatory_last_seen_timestamp_seconds{outbound_tag=~\"$outbound\"}), 0)", "instant": true }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green" }, { "color": "orange", "value": 5 }, { "color": "red", "value": 10 } ] }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Last try: ago (s)",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "clamp_min(time() - max by (outbound_tag) (observatory_last_try_timestamp_seconds{outbound_tag=~\"$outbound\"}), 0)", "instant": true }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+
+    {
+      "type": "timeseries",
+      "title": "Exporter CPU (%)",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "rate(process_cpu_seconds_total[$rate]) * 100" }],
+      "fieldConfig": { "defaults": { "unit": "percent" } },
+      "options": { "legend": { "showLegend": true } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory RSS",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [{ "refId": "A", "expr": "process_resident_memory_bytes" }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+
+    {
+      "type": "timeseries",
+      "title": "Total traffic (bytes/s)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 10 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        { "refId": "A", "expr": "sum(rate(traffic_downlink_bytes_total{section=~\"$section\",name=~\"$name\"}[$rate]))", "legendFormat": "downlink" },
+        { "refId": "B", "expr": "sum(rate(traffic_uplink_bytes_total{section=~\"$section\",name=~\"$name\"}[$rate]))", "legendFormat": "uplink" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "Bps" } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Downlink by name (stacked)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [ { "refId": "A", "expr": "sum by (name) (rate(traffic_downlink_bytes_total{section=~\"$section\",name=~\"$name\"}[$rate]))", "legendFormat": "{{name}}" } ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "stacking": { "mode": "normal", "group": "A" } } } }
+    },
+    {
+      "type": "timeseries",
+      "title": "Uplink by name (stacked)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [ { "refId": "A", "expr": "sum by (name) (rate(traffic_uplink_bytes_total{section=~\"$section\",name=~\"$name\"}[$rate]))", "legendFormat": "{{name}}" } ],
+      "fieldConfig": { "defaults": { "unit": "Bps", "custom": { "stacking": { "mode": "normal", "group": "A" } } } }
+    },
+
+    {
+      "type": "bargauge",
+      "title": "Top10 downlink (now)",
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [ { "refId": "A", "expr": "topk(10, sum by (name) (rate(traffic_downlink_bytes_total{section=~\"$section\"}[$rate])))", "instant": true, "legendFormat": "{{name}}" } ],
+      "fieldConfig": { "defaults": { "unit": "Bps" } }
+    },
+    {
+      "type": "bargauge",
+      "title": "Top10 uplink (now)",
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [ { "refId": "A", "expr": "topk(10, sum by (name) (rate(traffic_uplink_bytes_total{section=~\"$section\"}[$rate])))", "instant": true, "legendFormat": "{{name}}" } ],
+      "fieldConfig": { "defaults": { "unit": "Bps" } }
+    },
+
+    {
+      "type": "timeseries",
+      "title": "Observatory delay (s)",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 33 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [ { "refId": "A", "expr": "max by (outbound_tag) (observatory_delay_seconds{outbound_tag=~\"$outbound\"})" } ],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    }
+  ]
+}
+
