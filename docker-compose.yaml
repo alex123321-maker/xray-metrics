@@ -4,9 +4,9 @@ services:
     image: victoriametrics/victoria-metrics:latest
     command:
       - -storageDataPath=/vm-data
-      - -retentionPeriod=7d   # уменьшите хранение ради экономии диска
+      - -retentionPeriod=${VM_RETENTION:-7d}   # уменьшите хранение ради экономии диска
     ports:
-      - "8428:8428" 
+      - "${VM_PORT:-8428}:8428" 
     network_mode: host
     volumes:
       - vm-data:/vm-data
@@ -16,13 +16,13 @@ services:
     container_name: json-exporter
     restart: unless-stopped
     ports:
-      - "9108:9108"
+      - "${EXPORTER_PORT:-9108}:9108"
     environment:
-      SOURCE: "http://127.0.0.1:11111/debug/vars" 
+      SOURCE: "${EXPORTER_SOURCE}"
       LISTEN: "0.0.0.0:9108"
-      TIMEOUT: "5"
-      DELAY_UNIT: "ms"   # поменяй на "s", если delay уже в секундах
-      LOG_LEVEL: "DEBUG"
+      TIMEOUT: "${EXPORTER_TIMEOUT:-5}"
+      DELAY_UNIT: "${EXPORTER_DELAY_UNIT:-ms}"   # поменяй на "s", если delay уже в секундах
+      LOG_LEVEL: "${EXPORTER_LOG_LEVEL:-INFO}"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9108/metrics"]
       interval: 30s
@@ -37,10 +37,10 @@ services:
     restart: unless-stopped
     command:
       - -promscrape.config=/etc/scrape.yml
-      - -remoteWrite.url=http://127.0.0.1:8428/api/v1/write
+      - -remoteWrite.url=http://127.0.0.1:${VM_PORT:-8428}/api/v1/write
     network_mode: host
     volumes:
-      - ./scrape.yml:/etc/scrape.yml:ro
+      - ./config/scrape.yml:/etc/scrape.yml:ro
     
   grafana:
     image: grafana/grafana-oss:latest
@@ -48,15 +48,17 @@ services:
     
     network_mode: host
     environment:
-      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_ADDR: ${GRAFANA_HTTP_ADDR:-127.0.0.1}
     user: "472:472"
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./grafana-provisioning/datasources:/etc/grafana/provisioning/datasources
-      - ./grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards
-      - ./grafana-dashboards:/var/lib/grafana/dashboards
-      - ./grafana-provisioning/alerting:/etc/grafana/provisioning/alerting
-      - ./grafana-provisioning/alert-rules:/etc/grafana/provisioning/alerting/rules
+      - ./config/grafana-provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./config/grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./config/grafana-dashboards:/var/lib/grafana/dashboards
+      - ./config/grafana-provisioning/alerting:/etc/grafana/provisioning/alerting
+      - ./config/grafana-provisioning/alert-rules:/etc/grafana/provisioning/alerting/rules
 
 volumes:
   vm-data:
