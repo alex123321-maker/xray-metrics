@@ -1,0 +1,16 @@
+# Runtime data
+vm-data/
+vl-data/
+grafana-data/
+
+# Local dashboards no longer used
+/dashboards/
+json_exporter.yml
+
+# Python
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
