@@ -5,18 +5,15 @@ services:
     command:
       - -storageDataPath=/vm-data
       - -retentionPeriod=${VM_RETENTION:-7d}   # уменьшите хранение ради экономии диска
-    ports:
-      - "${VM_PORT:-8428}:8428" 
-    network_mode: host
     volumes:
       - vm-data:/vm-data
+    networks:
+      - dokploy-network
 
   json-exporter:
     build: ./exporter/
     container_name: json-exporter
     restart: unless-stopped
-    ports:
-      - "${EXPORTER_PORT:-9108}:9108"
     environment:
       SOURCE: "${EXPORTER_SOURCE}"
       LISTEN: "0.0.0.0:9108"
@@ -29,7 +26,8 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
-    network_mode: host    
+    networks:
+      - dokploy-network
 
   vmagent:
     image: victoriametrics/vmagent:latest
@@ -37,21 +35,21 @@ services:
     restart: unless-stopped
     command:
       - -promscrape.config=/etc/scrape.yml
-      - -remoteWrite.url=http://127.0.0.1:${VM_PORT:-8428}/api/v1/write
-    network_mode: host
+      - -remoteWrite.url=http://victoriametrics:8428/api/v1/write
     volumes:
       - ./config/scrape.yml:/etc/scrape.yml:ro
+    depends_on:
+      - victoriametrics
+      - json-exporter
+    networks:
+      - dokploy-network
     
   grafana:
     image: grafana/grafana-oss:latest
     restart: unless-stopped
-    
-    network_mode: host
     environment:
       GF_SERVER_HTTP_ADDR: ${GRAFANA_HTTP_ADDR:-127.0.0.1}
     user: "472:472"
-    ports:
-      - "${GRAFANA_PORT:-3000}:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ./config/grafana-provisioning/datasources:/etc/grafana/provisioning/datasources
@@ -59,8 +57,20 @@ services:
       - ./config/grafana-dashboards:/var/lib/grafana/dashboards
       - ./config/grafana-provisioning/alerting:/etc/grafana/provisioning/alerting
       - ./config/grafana-provisioning/alert-rules:/etc/grafana/provisioning/alerting/rules
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`${GRAFANA_DOMAIN}`)"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    networks:
+      - dokploy-network
 
 volumes:
   vm-data:
   grafana-data:
+
+networks:
+  dokploy-network:
+    external: true
 
