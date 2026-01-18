@@ -20,6 +20,24 @@ class JsonCollector:
         self._fetch_errors = 0
         self._parse_errors = 0
 
+    def _iter_numeric_paths(self, obj, path=""):
+        if isinstance(obj, bool):
+            return
+        if isinstance(obj, (int, float)):
+            yield path, float(obj)
+            return
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                key = str(k)
+                new_path = f"{path}.{key}" if path else key
+                yield from self._iter_numeric_paths(v, new_path)
+            return
+        if isinstance(obj, list):
+            for i, v in enumerate(obj):
+                new_path = f"{path}[{i}]" if path else f"[{i}]"
+                yield from self._iter_numeric_paths(v, new_path)
+            return
+
     def _fetch(self):
         logging.debug("Fetching source: %s (timeout=%s)", self.source, self.timeout)
         try:
@@ -289,6 +307,22 @@ class JsonCollector:
         yield inbound_down; yield inbound_up
         yield outbound_down; yield outbound_up
         yield user_down; yield user_up; yield user_up_bytes; yield user_conn
+
+        # ---- all numeric vars (generic) ----
+        all_vars = GaugeMetricFamily(
+            "xray_var",
+            "All numeric values from Xray debug/vars (path label).",
+            labels=["path"]
+        )
+        paths_logged = []
+        for path, val in self._iter_numeric_paths(data):
+            if not path:
+                continue
+            all_vars.add_metric([path], val)
+            paths_logged.append(path)
+        if paths_logged:
+            logging.debug("xray_var paths (%d): %s", len(paths_logged), paths_logged)
+        yield all_vars
 
 def _parse_listen(s: str):
     host, sep, port = s.rpartition(":")

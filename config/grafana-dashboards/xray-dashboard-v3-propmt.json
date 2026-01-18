@@ -54,11 +54,11 @@
     {
       "id": 2,
       "type": "stat",
-      "title": "Версия Xray",
+      "title": "Версия Python (exporter)",
       "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "xray_info", "legendFormat": "{{version}}", "refId": "A" }
+        { "expr": "python_info", "legendFormat": "{{version}}", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -111,11 +111,11 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Observatory общий статус",
+      "title": "Ошибки exporter (5m)",
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "min(xray_observatory_alive)", "refId": "A" }
+        { "expr": "sum(increase(xray_exporter_parse_errors_total[5m])) + sum(increase(xray_exporter_fetch_errors_total[5m]))", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -153,24 +153,24 @@
     {
       "id": 7,
       "type": "timeseries",
-      "title": "Активные подключения/сек",
+      "title": "Скорость пользовательского трафика (бит/с)",
       "gridPos": { "h": 8, "w": 6, "x": 12, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "rate(xray_user_conn_count[2m])", "refId": "A" }
+        { "expr": "sum(rate(xray_traffic_user_uplink_bytes_total[2m])) * 8", "refId": "A" }
       ],
-      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] }
+      "fieldConfig": { "defaults": { "unit": "bps" }, "overrides": [] }
     },
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Задержка исходящих подключений (мс)",
+      "title": "Длительность скрейпа exporter (с)",
       "gridPos": { "h": 8, "w": 6, "x": 18, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "xray_observatory_delay_ms", "legendFormat": "{{outbound_tag}}", "refId": "A" }
+        { "expr": "xray_exporter_scrape_duration_seconds", "refId": "A" }
       ],
-      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
     },
     {
       "id": 9,
@@ -232,36 +232,25 @@
     {
       "id": 12,
       "type": "timeseries",
-      "title": "Количество горутин",
+      "title": "CPU экспортера (cores)",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 21 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "go_goroutines{job=\"xray-core-metrics\"}", "refId": "A" }
+        { "expr": "rate(process_cpu_seconds_total{job=\"xray-core-metrics\"}[5m])", "refId": "A" }
       ],
-      "fieldConfig": { "defaults": {}, "overrides": [] }
+      "fieldConfig": { "defaults": { "unit": "cores" }, "overrides": [] }
     },
     {
       "id": 13,
-      "type": "table",
-      "title": "Observatory — детальное состояние",
+      "type": "timeseries",
+      "title": "Ошибки exporter (total)",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 21 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "xray_observatory_alive", "format": "table", "instant": true, "refId": "A" },
-        { "expr": "xray_observatory_delay_ms", "format": "table", "instant": true, "refId": "B" },
-        { "expr": "time() - xray_observatory_last_seen_time", "format": "table", "instant": true, "refId": "C" }
+        { "expr": "xray_exporter_fetch_errors_total", "legendFormat": "fetch_errors_total", "refId": "A" },
+        { "expr": "xray_exporter_parse_errors_total", "legendFormat": "parse_errors_total", "refId": "B" }
       ],
-      "transformations": [
-        { "id": "joinByField", "options": { "byField": "outbound_tag", "mode": "outer" } },
-        { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "outbound_tag": "Outbound Tag", "Value": "Alive", "Value #B": "Last Delay (ms)", "Value #C": "Last Seen (s)" } } }
-      ],
-      "fieldConfig": {
-        "defaults": {},
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "Last Delay (ms)" }, "properties": [ { "id": "unit", "value": "ms" } ] },
-          { "matcher": { "id": "byName", "options": "Last Seen (s)" }, "properties": [ { "id": "unit", "value": "s" } ] }
-        ]
-      }
+      "fieldConfig": { "defaults": {}, "overrides": [] }
     },
     {
       "id": 14,
@@ -278,14 +267,11 @@
     {
       "id": 15,
       "type": "stat",
-      "title": "Прогноз исчерпания трафика (дни)",
+      "title": "Суммарный трафик пользователей (30d, GB)",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 29 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        {
-          "expr": "(traffic_limit_bytes - increase(xray_traffic_downlink_bytes_total[30d])) / (increase(xray_traffic_downlink_bytes_total[30d]) / 30)",
-          "refId": "A"
-        }
+        { "expr": "sum(increase(xray_traffic_user_downlink_bytes_total[30d])) / 1024 / 1024 / 1024", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -295,7 +281,7 @@
         "graphMode": "none",
         "justifyMode": "auto"
       },
-      "fieldConfig": { "defaults": { "unit": "d" }, "overrides": [] }
+      "fieldConfig": { "defaults": { "unit": "decgbytes" }, "overrides": [] }
     }
   ],
   "refresh": "30s",
