@@ -4,7 +4,7 @@ datasources:
     uid: VM
     type: prometheus
     access: proxy
-    url: http://127.0.0.1:8428
+    url: http://victoriametrics:8428
     isDefault: true
     jsonData:
       timeInterval: 10s
