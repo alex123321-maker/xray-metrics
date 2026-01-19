@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-import argparse, json, time, os, sys, logging, ssl
+import argparse, json, time, os, sys, logging, ssl, asyncio
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 from http.cookiejar import CookieJar
 from urllib.request import build_opener, HTTPCookieProcessor, HTTPSHandler
 from prometheus_client import start_http_server, REGISTRY
 from prometheus_client.core import GaugeMetricFamily, CounterMetricFamily
+
+try:
+    import websockets
+except Exception:
+    websockets = None
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
@@ -25,7 +30,11 @@ class JsonCollector:
                  ui_login_path: str | None = None,
                  ui_inbounds_path: str | None = None,
                  ui_online_path: str | None = None,
-                 ui_insecure: bool = False):
+                 ui_insecure: bool = False,
+                 ui_ws_url: str | None = None,
+                 ui_ws_timeout: int = 5,
+                 ui_ws_cache_ttl: int = 30,
+                 ui_ws_messages: int = 3):
         self.source = source
         self.timeout = timeout
         self.delay_unit = delay_unit  # 'ms' или 's'
@@ -44,11 +53,17 @@ class JsonCollector:
         self.ui_inbounds_path = ui_inbounds_path or "/api/inbounds"
         self.ui_online_path = ui_online_path or "/api/onlineClients"
         self.ui_insecure = ui_insecure
+        self.ui_ws_url = ui_ws_url
+        self.ui_ws_timeout = ui_ws_timeout
+        self.ui_ws_cache_ttl = ui_ws_cache_ttl
+        self.ui_ws_messages = ui_ws_messages
         self._ui_cookie_jar = None
         self._ui_opener = None
         self._ui_last_login_ts = 0.0
         self._ui_inbounds_cache = None
         self._ui_inbounds_cache_ts = 0.0
+        self._ui_ws_cache = None
+        self._ui_ws_cache_ts = 0.0
         self._fetch_errors = 0
         self._parse_errors = 0
 
@@ -130,11 +145,7 @@ class JsonCollector:
         base = self.ui_basepath or ""
         return f"{self.ui_scheme}://{self.ui_host}:{self.ui_port}{base}{p}"
 
-    def _fetch_3xui(self):
-        if not (self.ui_host and self.ui_port and (self.ui_bearer_token or (self.ui_username and self.ui_password))):
-            logging.info("3x-ui API skipped: missing host/port or credentials")
-            return None, None
-
+    def _get_3xui_session(self):
         if self._ui_cookie_jar is None:
             self._ui_cookie_jar = CookieJar()
         ctx = ssl._create_unverified_context() if self.ui_insecure else None
@@ -143,31 +154,43 @@ class JsonCollector:
                 self._ui_opener = build_opener(HTTPCookieProcessor(self._ui_cookie_jar), HTTPSHandler(context=ctx))
             else:
                 self._ui_opener = build_opener(HTTPCookieProcessor(self._ui_cookie_jar))
-        opener = self._ui_opener
-
         headers = {"User-Agent": "json-exporter/1"}
         if self.ui_bearer_token:
             headers["Authorization"] = f"Bearer {self.ui_bearer_token}"
         if self.ui_api_key:
             headers["apiKey"] = self.ui_api_key
+        return self._ui_opener, headers
 
-        now_ts = time.time()
+    def _ensure_3xui_login(self, opener, headers, now_ts: float) -> bool:
+        if self.ui_bearer_token:
+            return True
+        if not (self.ui_username and self.ui_password):
+            return False
         login_ttl = 86400  # 24 hours
-        if self.ui_username and self.ui_password and not self.ui_bearer_token:
-            if self._ui_last_login_ts and (now_ts - self._ui_last_login_ts) < login_ttl:
-                logging.info("3x-ui login skipped (cached session)")
-            else:
-                login_url = self._build_3xui_url(self.ui_login_path)
-                payload = json.dumps({"username": self.ui_username, "password": self.ui_password}).encode("utf-8")
-                req = Request(login_url, data=payload, headers={**headers, "Content-Type": "application/json"}, method="POST")
-                try:
-                    with opener.open(req, timeout=self.api_timeout) as r:
-                        if r.getcode() >= 400:
-                            raise HTTPError(login_url, r.getcode(), "bad status", hdrs=r.headers, fp=None)
-                    self._ui_last_login_ts = now_ts
-                except Exception as e:
-                    logging.warning("3x-ui login failed: %s", e)
-                    return None, None
+        if self._ui_last_login_ts and (now_ts - self._ui_last_login_ts) < login_ttl:
+            logging.info("3x-ui login skipped (cached session)")
+            return True
+        login_url = self._build_3xui_url(self.ui_login_path)
+        payload = json.dumps({"username": self.ui_username, "password": self.ui_password}).encode("utf-8")
+        req = Request(login_url, data=payload, headers={**headers, "Content-Type": "application/json"}, method="POST")
+        try:
+            with opener.open(req, timeout=self.api_timeout) as r:
+                if r.getcode() >= 400:
+                    raise HTTPError(login_url, r.getcode(), "bad status", hdrs=r.headers, fp=None)
+            self._ui_last_login_ts = now_ts
+            return True
+        except Exception as e:
+            logging.warning("3x-ui login failed: %s", e)
+            return False
+
+    def _fetch_3xui(self):
+        if not (self.ui_host and self.ui_port and (self.ui_bearer_token or (self.ui_username and self.ui_password))):
+            logging.info("3x-ui API skipped: missing host/port or credentials")
+            return None, None
+        opener, headers = self._get_3xui_session()
+        now_ts = time.time()
+        if not self._ensure_3xui_login(opener, headers, now_ts):
+            return None, None
 
         def _get_json(url: str):
             req = Request(url, headers=headers)
@@ -196,6 +219,59 @@ class JsonCollector:
             logging.warning("3x-ui online fetch failed: %s", e)
 
         return inbounds, online
+
+    def _cookie_header(self) -> str | None:
+        if not self._ui_cookie_jar:
+            return None
+        parts = []
+        for c in self._ui_cookie_jar:
+            if c.name and c.value:
+                parts.append(f"{c.name}={c.value}")
+        return "; ".join(parts) if parts else None
+
+    def _fetch_3xui_ws(self):
+        if not self.ui_ws_url:
+            return None
+        if websockets is None:
+            logging.warning("websockets package not available; WS disabled")
+            return None
+        now_ts = time.time()
+        if self._ui_ws_cache is not None and (now_ts - self._ui_ws_cache_ts) < self.ui_ws_cache_ttl:
+            return self._ui_ws_cache
+
+        opener, headers = self._get_3xui_session()
+        if not self._ensure_3xui_login(opener, headers, now_ts):
+            return None
+        cookie_header = self._cookie_header()
+        ws_headers = {}
+        if cookie_header:
+            ws_headers["Cookie"] = cookie_header
+
+        async def _ws_once():
+            result = {"status": None, "traffic": None}
+            async with websockets.connect(self.ui_ws_url, additional_headers=ws_headers) as ws:
+                for _ in range(max(1, int(self.ui_ws_messages))):
+                    msg = await asyncio.wait_for(ws.recv(), timeout=self.ui_ws_timeout)
+                    try:
+                        data = json.loads(msg)
+                    except Exception:
+                        continue
+                    mtype = data.get("type")
+                    if mtype in ("status", "traffic"):
+                        result[mtype] = data
+                    if result.get("status") and result.get("traffic"):
+                        break
+            return result
+
+        try:
+            payload = asyncio.run(_ws_once())
+            self._ui_ws_cache = payload
+            self._ui_ws_cache_ts = now_ts
+            logging.info("3x-ui WS payload fetched")
+            return payload
+        except Exception as e:
+            logging.warning("3x-ui WS fetch failed: %s", e)
+            return None
 
     @staticmethod
     def _load_user_map(path: str | None) -> dict:
@@ -330,6 +406,7 @@ class JsonCollector:
         )
         start = time.perf_counter()
         api_data = None
+        ws_data = None
         ui_inbounds = None
         ui_online = None
         try:
@@ -391,6 +468,8 @@ class JsonCollector:
         # ---- optional 3x-ui api ----
         if self.ui_host and self.ui_port:
             ui_inbounds, ui_online = self._fetch_3xui()
+            if self.ui_ws_url:
+                ws_data = self._fetch_3xui_ws()
 
         # ---- observatory ----
         obs = data.get("observatory", {}) or {}
@@ -543,6 +622,8 @@ class JsonCollector:
         # ---- users online & aliases ----
         api_online = None
         api_uptime = None
+        ws_online = None
+        ws_uptime = None
         if api_data is not None:
             online_keys = {
                 "online", "online_users", "users_online", "onlineUsers", "onlineUser",
@@ -561,6 +642,17 @@ class JsonCollector:
                 if "ms" in str(k).lower():
                     api_uptime = api_uptime / 1000.0
 
+        if ws_data and isinstance(ws_data, dict):
+            status = (ws_data.get("status") or {}).get("payload")
+            traffic = (ws_data.get("traffic") or {}).get("payload")
+            if isinstance(status, dict):
+                if isinstance(status.get("uptime"), (int, float)):
+                    ws_uptime = float(status.get("uptime"))
+            if isinstance(traffic, dict):
+                online_clients = traffic.get("onlineClients")
+                if isinstance(online_clients, list):
+                    ws_online = float(len(online_clients))
+
         online_from_ui = None
         if ui_online is not None:
             online_from_ui = self._extract_online_count(ui_online)
@@ -569,7 +661,9 @@ class JsonCollector:
             "xray_users_online",
             "Current online users (best effort)."
         )
-        if online_from_ui is not None:
+        if ws_online is not None:
+            users_online_g.add_metric([], float(ws_online))
+        elif online_from_ui is not None:
             users_online_g.add_metric([], float(online_from_ui))
         elif api_online is not None:
             users_online_g.add_metric([], float(api_online))
@@ -577,7 +671,14 @@ class JsonCollector:
             users_online_g.add_metric([], float(online_users))
         yield users_online_g
 
-        if api_uptime is not None:
+        if ws_uptime is not None:
+            xray_uptime_g = GaugeMetricFamily(
+                "xray_uptime_seconds",
+                "Xray uptime in seconds (from API when available)."
+            )
+            xray_uptime_g.add_metric([], float(ws_uptime))
+            yield xray_uptime_g
+        elif api_uptime is not None:
             xray_uptime_g = GaugeMetricFamily(
                 "xray_uptime_seconds",
                 "Xray uptime in seconds (from API when available)."
@@ -662,6 +763,14 @@ def main():
                     help="Путь Online Clients (ENV UI_ONLINE_PATH).")
     ap.add_argument("--ui-insecure", action="store_true", default=os.getenv("UI_INSECURE", "false").lower() == "true",
                     help="Отключить проверку TLS (ENV UI_INSECURE=true).")
+    ap.add_argument("--ui-ws-url", default=os.getenv("UI_WS_URL"),
+                    help="WebSocket URL 3x-ui (ENV UI_WS_URL).")
+    ap.add_argument("--ui-ws-timeout", type=int, default=int(os.getenv("UI_WS_TIMEOUT", "5")),
+                    help="Таймаут WS (сек).")
+    ap.add_argument("--ui-ws-cache-ttl", type=int, default=int(os.getenv("UI_WS_CACHE_TTL", "30")),
+                    help="TTL WS кэша (сек).")
+    ap.add_argument("--ui-ws-messages", type=int, default=int(os.getenv("UI_WS_MESSAGES", "3")),
+                    help="Сколько WS сообщений читать за сессию.")
     args = ap.parse_args()
 
     host, port = _parse_listen(args.listen)
@@ -691,6 +800,10 @@ def main():
             ui_inbounds_path=args.ui_inbounds_path,
             ui_online_path=args.ui_online_path,
             ui_insecure=args.ui_insecure,
+            ui_ws_url=args.ui_ws_url,
+            ui_ws_timeout=args.ui_ws_timeout,
+            ui_ws_cache_ttl=args.ui_ws_cache_ttl,
+            ui_ws_messages=args.ui_ws_messages,
         )
     )
     start_http_server(port, addr=host)

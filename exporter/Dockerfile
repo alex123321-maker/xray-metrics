@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 # Минимальные зависимости + curl для healthcheck
-RUN pip install --no-cache-dir prometheus-client \
+RUN pip install --no-cache-dir prometheus-client websockets \
  && apt-get update && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/*
 

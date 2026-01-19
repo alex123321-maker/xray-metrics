@@ -174,7 +174,7 @@
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
         {
-          "expr": "sum by (user, alias) ((rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])) * on(user) group_left(alias) xray_user_alias_info{job=\"xray-core-metrics\"}) or label_replace(sum by (user) (rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])), \"alias\", \"$1\", \"user\", \"(.*)\")",
+          "expr": "sum by (user, alias) ((rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])) * on(user) group_left(alias) xray_user_alias_info{job=\"xray-core-metrics\"}) or label_replace(sum by (user) (rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])) unless on(user) xray_user_alias_info{job=\"xray-core-metrics\"}, \"alias\", \"$1\", \"user\", \"(.*)\")",
           "legendFormat": "{{alias}} ({{user}})",
           "refId": "A"
         }
@@ -226,12 +226,14 @@
               "Time": true,
               "job": true,
               "instance": true,
+              "__name__": true,
               "Value #C": true
             },
             "renameByName": {
               "user": "Email",
               "alias": "Подпись",
               "Value": "Входящий трафик (B/s)",
+              "Value #A": "Входящий трафик (B/s)",
               "Value #B": "Исходящий трафик (B/s)",
               "Value #D": "Трафик за 30д (GB)"
             }

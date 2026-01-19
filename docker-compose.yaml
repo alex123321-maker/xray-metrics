@@ -35,6 +35,10 @@ services:
       UI_INBOUNDS_PATH: "${UI_INBOUNDS_PATH:-/api/inbounds}"
       UI_ONLINE_PATH: "${UI_ONLINE_PATH:-/api/onlineClients}"
       UI_INSECURE: "${UI_INSECURE:-false}"
+      UI_WS_URL: "${UI_WS_URL}"
+      UI_WS_TIMEOUT: "${UI_WS_TIMEOUT:-5}"
+      UI_WS_CACHE_TTL: "${UI_WS_CACHE_TTL:-30}"
+      UI_WS_MESSAGES: "${UI_WS_MESSAGES:-3}"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9108/metrics"]
       interval: 30s

@@ -2,6 +2,7 @@
 vm-data/
 vl-data/
 grafana-data/
+.venv/
 
 # Local dashboards no longer used
 /dashboards/
