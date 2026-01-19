@@ -134,7 +134,20 @@
         "graphMode": "none",
         "justifyMode": "auto"
       },
-      "fieldConfig": { "defaults": { "unit": "s", "decimals": 0 }, "overrides": [] }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1800 }
+            ]
+          }
+        },
+        "overrides": []
+      }
     },
     {
       "id": 5,
@@ -250,6 +263,13 @@
           "format": "table",
           "instant": true,
           "refId": "D"
+        },
+        {
+          "expr": "(increase(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[30d]) + increase(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[30d])) / 1024 / 1024 / 1024",
+          "legendFormat": "{{user}}",
+          "format": "table",
+          "instant": true,
+          "refId": "E"
         }
       ],
       "transformations": [
@@ -266,9 +286,10 @@
             "renameByName": {
               "user": "Email",
               "alias": "Подпись",
-              "Value": "Uplink bps",
-              "Value #B": "Downlink bps",
-              "Value #C": "Conn"
+              "Value": "Входящий трафик (bps)",
+              "Value #B": "Исходящий трафик (bps)",
+              "Value #C": "Соединения",
+              "Value #E": "Трафик за 30д (GB)"
             }
           }
         }
@@ -276,8 +297,9 @@
       "fieldConfig": {
         "defaults": {},
         "overrides": [
-          { "matcher": { "id": "byName", "options": "Uplink bps" }, "properties": [ { "id": "unit", "value": "bps" } ] },
-          { "matcher": { "id": "byName", "options": "Downlink bps" }, "properties": [ { "id": "unit", "value": "bps" } ] }
+          { "matcher": { "id": "byName", "options": "Входящий трафик (bps)" }, "properties": [ { "id": "unit", "value": "bps" } ] },
+          { "matcher": { "id": "byName", "options": "Исходящий трафик (bps)" }, "properties": [ { "id": "unit", "value": "bps" } ] },
+          { "matcher": { "id": "byName", "options": "Трафик за 30д (GB)" }, "properties": [ { "id": "unit", "value": "decgbytes" } ] }
         ]
       }
     },
@@ -295,47 +317,23 @@
     },
     {
       "id": 12,
-      "type": "table",
-      "title": "Прокси — статус/задержка (xray-checker)",
+      "type": "timeseries",
+      "title": "Доступность прокси (xray-checker)",
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 21 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
         {
-          "expr": "xray_proxy_status{job=\"xray-checker\"} or xray_checker_proxy_status{job=\"xray-checker\"} or probe_success{job=\"xray-checker\"}",
-          "format": "table",
-          "instant": true,
+          "expr": "max by (name, address) (xray_proxy_status{job=\"xray-checker\"} or xray_checker_proxy_status{job=\"xray-checker\"} or probe_success{job=\"xray-checker\"})",
+          "legendFormat": "{{name}} {{address}}",
           "refId": "A"
-        },
-        {
-          "expr": "xray_proxy_latency_ms{job=\"xray-checker\"} or xray_checker_proxy_latency_ms{job=\"xray-checker\"} or xray_checker_latency_ms{job=\"xray-checker\"} or (probe_duration_seconds{job=\"xray-checker\"} * 1000)",
-          "format": "table",
-          "instant": true,
-          "refId": "B"
-        }
-      ],
-      "transformations": [
-        { "id": "joinByField", "options": { "byField": "name", "mode": "outer" } },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": { "Time": true },
-            "renameByName": {
-              "name": "Name",
-              "address": "Address",
-              "protocol": "Protocol",
-              "sub_name": "Subscription",
-              "instance": "Instance",
-              "Value": "Status",
-              "Value #B": "Latency (ms)"
-            }
-          }
         }
       ],
       "fieldConfig": {
-        "defaults": {},
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "Latency (ms)" }, "properties": [ { "id": "unit", "value": "ms" } ] }
-        ]
+        "defaults": {
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
       }
     },
     {
