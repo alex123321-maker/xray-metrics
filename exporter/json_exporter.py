@@ -47,6 +47,8 @@ class JsonCollector:
         self._ui_cookie_jar = None
         self._ui_opener = None
         self._ui_last_login_ts = 0.0
+        self._ui_inbounds_cache = None
+        self._ui_inbounds_cache_ts = 0.0
         self._fetch_errors = 0
         self._parse_errors = 0
 
@@ -175,11 +177,18 @@ class JsonCollector:
 
         inbounds = None
         online = None
-        try:
-            inbounds = _get_json(self._build_3xui_url(self.ui_inbounds_path))
-            logging.info("3x-ui inbounds fetched")
-        except Exception as e:
-            logging.warning("3x-ui inbounds fetch failed: %s", e)
+        inbounds_ttl = 86400  # 24 hours
+        if self._ui_inbounds_cache is not None and (now_ts - self._ui_inbounds_cache_ts) < inbounds_ttl:
+            inbounds = self._ui_inbounds_cache
+            logging.info("3x-ui inbounds skipped (cached data)")
+        else:
+            try:
+                inbounds = _get_json(self._build_3xui_url(self.ui_inbounds_path))
+                self._ui_inbounds_cache = inbounds
+                self._ui_inbounds_cache_ts = now_ts
+                logging.info("3x-ui inbounds fetched")
+            except Exception as e:
+                logging.warning("3x-ui inbounds fetch failed: %s", e)
         try:
             online = _get_json(self._build_3xui_url(self.ui_online_path))
             logging.info("3x-ui online clients fetched")
