@@ -25,8 +25,9 @@
       "gridPos": { "h": 6, "w": 12, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "up{job=\"xray-core-metrics\"}", "legendFormat": "Xray", "refId": "A" },
-        { "expr": "up{job=\"xray-checker\"}", "legendFormat": "xray-checker", "refId": "B" },
+        { "expr": "up{job=\"xray-core-metrics\"}", "legendFormat": "Xray Core", "refId": "A" },
+        { "expr": "up{job=\"xray-ui-metrics\"}", "legendFormat": "Xray UI", "refId": "E" },
+        { "expr": "up{job=\"xray-checker\"}", "legendFormat": "Xray Checker", "refId": "B" },
         { "expr": "up{job=\"grafana\"}", "legendFormat": "Grafana", "refId": "C" },
         { "expr": "min(xray_proxy_status{job=\"xray-checker\"} or xray_checker_proxy_status{job=\"xray-checker\"} or probe_success{job=\"xray-checker\"})", "legendFormat": "Proxy", "refId": "D" }
       ],
@@ -175,7 +176,7 @@
       "targets": [
         {
           "expr": "sum by (user, alias) ((rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])) * on(user) group_left(alias) xray_user_alias_info{job=~\"xray-ui-metrics|xray-core-metrics\"}) or label_replace(sum by (user) (rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])) unless on(user) xray_user_alias_info{job=~\"xray-ui-metrics|xray-core-metrics\"}, \"alias\", \"$1\", \"user\", \"(.*)\")",
-          "legendFormat": "{{alias}} ({{user}})",
+          "legendFormat": "{{alias}}",
           "refId": "A"
         }
       ],
