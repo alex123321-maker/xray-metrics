@@ -111,11 +111,11 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Ошибки exporter (5m)",
+      "title": "Статус прокси (xray-checker)",
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "sum(increase(xray_exporter_parse_errors_total[5m])) + sum(increase(xray_exporter_fetch_errors_total[5m]))", "refId": "A" }
+        { "expr": "min(xray_proxy_status)", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -164,13 +164,13 @@
     {
       "id": 8,
       "type": "timeseries",
-      "title": "Длительность скрейпа exporter (с)",
+      "title": "Задержка прокси (мс, xray-checker)",
       "gridPos": { "h": 8, "w": 6, "x": 18, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "xray_exporter_scrape_duration_seconds", "refId": "A" }
+        { "expr": "avg(xray_proxy_latency_ms)", "legendFormat": "avg", "refId": "A" }
       ],
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
     },
     {
       "id": 9,
@@ -242,15 +242,24 @@
     },
     {
       "id": 13,
-      "type": "timeseries",
-      "title": "Ошибки exporter (total)",
+      "type": "table",
+      "title": "Прокси — статус/задержка (xray-checker)",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 21 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "xray_exporter_fetch_errors_total", "legendFormat": "fetch_errors_total", "refId": "A" },
-        { "expr": "xray_exporter_parse_errors_total", "legendFormat": "parse_errors_total", "refId": "B" }
+        { "expr": "xray_proxy_status", "format": "table", "instant": true, "refId": "A" },
+        { "expr": "xray_proxy_latency_ms", "format": "table", "instant": true, "refId": "B" }
       ],
-      "fieldConfig": { "defaults": {}, "overrides": [] }
+      "transformations": [
+        { "id": "joinByField", "options": { "byField": "name", "mode": "outer" } },
+        { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "name": "Name", "address": "Address", "protocol": "Protocol", "sub_name": "Subscription", "instance": "Instance", "Value": "Status", "Value #B": "Latency (ms)" } } }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "Latency (ms)" }, "properties": [ { "id": "unit", "value": "ms" } ] }
+        ]
+      }
     },
     {
       "id": 14,

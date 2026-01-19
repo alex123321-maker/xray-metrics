@@ -29,6 +29,18 @@ services:
     networks:
       - dokploy-network
 
+  xray-checker:
+    image: kutovoys/xray-checker:latest
+    container_name: xray-checker
+    restart: unless-stopped
+    environment:
+      SUBSCRIPTION_URL: "${XRAY_CHECKER_SUBSCRIPTION_URL}"
+      METRICS_HOST: "0.0.0.0"
+      METRICS_PORT: "2112"
+      LOG_LEVEL: "info"
+    networks:
+      - dokploy-network
+
   vmagent:
     image: victoriametrics/vmagent:latest
     container_name: vmagent
@@ -41,6 +53,7 @@ services:
     depends_on:
       - victoriametrics
       - json-exporter
+      - xray-checker
     networks:
       - dokploy-network
     

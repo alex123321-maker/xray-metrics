@@ -6,3 +6,7 @@ scrape_configs:
     static_configs:
       - targets: ['json-exporter:9108']
 
+  - job_name: xray-checker
+    static_configs:
+      - targets: ['xray-checker:2112']
+
