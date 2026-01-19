@@ -20,6 +20,21 @@ services:
       TIMEOUT: "${EXPORTER_TIMEOUT:-5}"
       DELAY_UNIT: "${EXPORTER_DELAY_UNIT:-ms}"   # поменяй на "s", если delay уже в секундах
       LOG_LEVEL: "${EXPORTER_LOG_LEVEL:-INFO}"
+      XRAY_API_SOURCE: "${XRAY_API_SOURCE}"
+      XRAY_API_TIMEOUT: "${XRAY_API_TIMEOUT:-5}"
+      USER_MAP_FILE: "${USER_MAP_FILE}"
+      UI_HOST: "${UI_HOST}"
+      UI_PORT: "${UI_PORT}"
+      UI_BASEPATH: "${UI_BASEPATH:-/}"
+      UI_SCHEME: "${UI_SCHEME:-https}"
+      UI_USERNAME: "${UI_USERNAME}"
+      UI_PASSWORD: "${UI_PASSWORD}"
+      UI_BEARER_TOKEN: "${UI_BEARER_TOKEN}"
+      UI_API_KEY: "${UI_API_KEY}"
+      UI_LOGIN_PATH: "${UI_LOGIN_PATH:-/login}"
+      UI_INBOUNDS_PATH: "${UI_INBOUNDS_PATH:-/api/inbounds}"
+      UI_ONLINE_PATH: "${UI_ONLINE_PATH:-/api/onlineClients}"
+      UI_INSECURE: "${UI_INSECURE:-false}"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9108/metrics"]
       interval: 30s
@@ -39,6 +54,12 @@ services:
       METRICS_HOST: "0.0.0.0"
       METRICS_PORT: "2112"
       LOG_LEVEL: "info"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:2112/metrics"]
+      interval: 15s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
     networks:
       - dokploy-network
 
@@ -52,9 +73,12 @@ services:
     volumes:
       - ./config/scrape.yml:/etc/scrape.yml:ro
     depends_on:
-      - victoriametrics
-      - json-exporter
-      - xray-checker
+      victoriametrics:
+        condition: service_started
+      json-exporter:
+        condition: service_started
+      xray-checker:
+        condition: service_healthy
     networks:
       - dokploy-network
     
