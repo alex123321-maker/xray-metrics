@@ -44,6 +44,9 @@ class JsonCollector:
         self.ui_inbounds_path = ui_inbounds_path or "/api/inbounds"
         self.ui_online_path = ui_online_path or "/api/onlineClients"
         self.ui_insecure = ui_insecure
+        self._ui_cookie_jar = None
+        self._ui_opener = None
+        self._ui_last_login_ts = 0.0
         self._fetch_errors = 0
         self._parse_errors = 0
 
@@ -130,12 +133,15 @@ class JsonCollector:
             logging.info("3x-ui API skipped: missing host/port or credentials")
             return None, None
 
-        cj = CookieJar()
+        if self._ui_cookie_jar is None:
+            self._ui_cookie_jar = CookieJar()
         ctx = ssl._create_unverified_context() if self.ui_insecure else None
-        if ctx:
-            opener = build_opener(HTTPCookieProcessor(cj), HTTPSHandler(context=ctx))
-        else:
-            opener = build_opener(HTTPCookieProcessor(cj))
+        if self._ui_opener is None:
+            if ctx:
+                self._ui_opener = build_opener(HTTPCookieProcessor(self._ui_cookie_jar), HTTPSHandler(context=ctx))
+            else:
+                self._ui_opener = build_opener(HTTPCookieProcessor(self._ui_cookie_jar))
+        opener = self._ui_opener
 
         headers = {"User-Agent": "json-exporter/1"}
         if self.ui_bearer_token:
@@ -143,17 +149,23 @@ class JsonCollector:
         if self.ui_api_key:
             headers["apiKey"] = self.ui_api_key
 
+        now_ts = time.time()
+        login_ttl = 86400  # 24 hours
         if self.ui_username and self.ui_password and not self.ui_bearer_token:
-            login_url = self._build_3xui_url(self.ui_login_path)
-            payload = json.dumps({"username": self.ui_username, "password": self.ui_password}).encode("utf-8")
-            req = Request(login_url, data=payload, headers={**headers, "Content-Type": "application/json"}, method="POST")
-            try:
-                with opener.open(req, timeout=self.api_timeout) as r:
-                    if r.getcode() >= 400:
-                        raise HTTPError(login_url, r.getcode(), "bad status", hdrs=r.headers, fp=None)
-            except Exception as e:
-                logging.warning("3x-ui login failed: %s", e)
-                return None, None
+            if self._ui_last_login_ts and (now_ts - self._ui_last_login_ts) < login_ttl:
+                logging.info("3x-ui login skipped (cached session)")
+            else:
+                login_url = self._build_3xui_url(self.ui_login_path)
+                payload = json.dumps({"username": self.ui_username, "password": self.ui_password}).encode("utf-8")
+                req = Request(login_url, data=payload, headers={**headers, "Content-Type": "application/json"}, method="POST")
+                try:
+                    with opener.open(req, timeout=self.api_timeout) as r:
+                        if r.getcode() >= 400:
+                            raise HTTPError(login_url, r.getcode(), "bad status", hdrs=r.headers, fp=None)
+                    self._ui_last_login_ts = now_ts
+                except Exception as e:
+                    logging.warning("3x-ui login failed: %s", e)
+                    return None, None
 
         def _get_json(url: str):
             req = Request(url, headers=headers)
