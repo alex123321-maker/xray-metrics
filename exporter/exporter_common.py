@@ -234,12 +234,19 @@ class JsonCollector:
             headers["Cookie"] = cookie_header
 
         async def _ws_once():
-            async with websockets.connect(
-                self.ui_ws_url,
+            connect_kwargs = dict(
                 open_timeout=self.ui_ws_timeout,
                 close_timeout=self.ui_ws_timeout,
-                extra_headers=headers,
-            ) as ws:
+            )
+            try:
+                connect_kwargs["additional_headers"] = headers
+                ws_conn = websockets.connect(self.ui_ws_url, **connect_kwargs)
+            except TypeError:
+                connect_kwargs.pop("additional_headers", None)
+                connect_kwargs["extra_headers"] = headers
+                ws_conn = websockets.connect(self.ui_ws_url, **connect_kwargs)
+
+            async with ws_conn as ws:
                 payload = None
                 for _ in range(self.ui_ws_messages):
                     msg = await asyncio.wait_for(ws.recv(), timeout=self.ui_ws_timeout)
