@@ -27,6 +27,24 @@
 
 См. `.env`.
 
+Дополнительно для Xray API (uptime/online):
+
+- `XRAY_API_SOURCE` — HTTP(S) URL Xray API.
+- `XRAY_API_TIMEOUT` — таймаут запроса к API (сек).
+
+Маппинг пользователей (email -> подпись):
+
+- `USER_MAP_FILE` — путь к JSON файлу со словарём или массивом объектов.
+
+Интеграция 3x-ui API (email/подпись, онлайн):
+
+- `UI_HOST`, `UI_PORT`, `UI_BASEPATH`, `UI_SCHEME` — адрес панели.
+- `UI_USERNAME`, `UI_PASSWORD` — логин/пароль (cookie-сессия).
+- `UI_BEARER_TOKEN` — Bearer token, если включён.
+- `UI_API_KEY` — apiKey header, если требуется.
+- `UI_LOGIN_PATH`, `UI_INBOUNDS_PATH`, `UI_ONLINE_PATH` — пути API.
+- `UI_INSECURE=true` — отключить проверку TLS (если свой сертификат).
+
 Дополнительно для xray-checker:
 
 - `XRAY_CHECKER_SUBSCRIPTION_URL` — ссылка на подписку.
