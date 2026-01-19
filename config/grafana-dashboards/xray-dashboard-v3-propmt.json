@@ -90,7 +90,7 @@
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "xray_uptime_seconds{job=\"xray-core-metrics\"}", "refId": "A" }
+        { "expr": "max(xray_uptime_seconds{job=~\"xray-ui-metrics|xray-core-metrics\"})", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -109,7 +109,7 @@
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "xray_users_online{job=\"xray-core-metrics\"}", "refId": "A" }
+        { "expr": "max(xray_users_online{job=~\"xray-ui-metrics|xray-core-metrics\"})", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -174,7 +174,7 @@
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
         {
-          "expr": "sum by (user, alias) ((rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])) * on(user) group_left(alias) xray_user_alias_info{job=\"xray-core-metrics\"}) or label_replace(sum by (user) (rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])) unless on(user) xray_user_alias_info{job=\"xray-core-metrics\"}, \"alias\", \"$1\", \"user\", \"(.*)\")",
+          "expr": "sum by (user, alias) ((rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])) * on(user) group_left(alias) xray_user_alias_info{job=~\"xray-ui-metrics|xray-core-metrics\"}) or label_replace(sum by (user) (rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])) unless on(user) xray_user_alias_info{job=~\"xray-ui-metrics|xray-core-metrics\"}, \"alias\", \"$1\", \"user\", \"(.*)\")",
           "legendFormat": "{{alias}} ({{user}})",
           "refId": "A"
         }
@@ -203,7 +203,7 @@
           "refId": "B"
         },
         {
-          "expr": "xray_user_alias_info{job=\"xray-core-metrics\"}",
+          "expr": "xray_user_alias_info{job=~\"xray-ui-metrics|xray-core-metrics\"}",
           "legendFormat": "{{user}}",
           "format": "table",
           "instant": true,

@@ -4,7 +4,11 @@ global:
 scrape_configs:
   - job_name: xray-core-metrics
     static_configs:
-      - targets: ['json-exporter:9108']
+      - targets: ['json-exporter-core:9108']
+
+  - job_name: xray-ui-metrics
+    static_configs:
+      - targets: ['json-exporter-ui:9108']
 
   - job_name: xray-checker
     scrape_interval: 20s

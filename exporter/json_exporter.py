@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+from exporter_common import run_exporter
+
+
+if __name__ == "__main__":
+    run_exporter(require_source=True)
+
+"""
 import argparse, json, time, os, sys, logging, ssl, asyncio
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
@@ -15,253 +22,257 @@ except Exception:
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
-    format="%(asctime)s %(levelname)s %(message)s",
-    stream=sys.stdout,
-)
-
-class JsonCollector:
-    def __init__(self, source: str, timeout: int, delay_unit: str,
-                 api_source: str | None = None, api_timeout: int | None = None,
-                 user_map_file: str | None = None,
-                 ui_host: str | None = None, ui_port: int | None = None,
-                 ui_basepath: str | None = None, ui_scheme: str = "https",
-                 ui_username: str | None = None, ui_password: str | None = None,
-                 ui_bearer_token: str | None = None, ui_api_key: str | None = None,
-                 ui_login_path: str | None = None,
-                 ui_inbounds_path: str | None = None,
-                 ui_online_path: str | None = None,
-                 ui_insecure: bool = False,
-                 ui_ws_url: str | None = None,
-                 ui_ws_timeout: int = 5,
-                 ui_ws_cache_ttl: int = 30,
-                 ui_ws_messages: int = 3):
-        self.source = source
-        self.timeout = timeout
-        self.delay_unit = delay_unit  # 'ms' или 's'
-        self.api_source = api_source
-        self.api_timeout = api_timeout or timeout
-        self.user_map = self._load_user_map(user_map_file)
-        self.ui_host = ui_host
-        self.ui_port = ui_port
-        self.ui_basepath = self._normalize_basepath(ui_basepath)
-        self.ui_scheme = ui_scheme or "https"
-        self.ui_username = ui_username
-        self.ui_password = ui_password
-        self.ui_bearer_token = ui_bearer_token
-        self.ui_api_key = ui_api_key
-        self.ui_login_path = ui_login_path or "/login"
-        self.ui_inbounds_path = ui_inbounds_path or "/api/inbounds"
-        self.ui_online_path = ui_online_path or "/api/onlineClients"
-        self.ui_insecure = ui_insecure
-        self.ui_ws_url = ui_ws_url
-        self.ui_ws_timeout = ui_ws_timeout
-        self.ui_ws_cache_ttl = ui_ws_cache_ttl
-        self.ui_ws_messages = ui_ws_messages
-        self._ui_cookie_jar = None
-        self._ui_opener = None
-        self._ui_last_login_ts = 0.0
-        self._ui_inbounds_cache = None
-        self._ui_inbounds_cache_ts = 0.0
-        self._ui_ws_cache = None
-        self._ui_ws_cache_ts = 0.0
-        self._fetch_errors = 0
-        self._parse_errors = 0
-
-    def _iter_numeric_paths(self, obj, path=""):
-        if isinstance(obj, bool):
-            return
-        if isinstance(obj, (int, float)):
-            yield path, float(obj)
-            return
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                key = str(k)
-                new_path = f"{path}.{key}" if path else key
-                yield from self._iter_numeric_paths(v, new_path)
-            return
-        if isinstance(obj, list):
-            for i, v in enumerate(obj):
-                new_path = f"{path}[{i}]" if path else f"[{i}]"
-                yield from self._iter_numeric_paths(v, new_path)
-            return
-
-    def _fetch_from_source(self, source: str, timeout: int, label: str):
-        logging.debug("Fetching %s source: %s (timeout=%s)", label, source, timeout)
-        try:
-            if source.startswith(("http://", "https://")):
-                req = Request(source, headers={"User-Agent": "json-exporter/1"})
-                with urlopen(req, timeout=timeout) as r:
-                    status = getattr(r, "status", None) or r.getcode()
-                    raw = r.read()
-                    logging.info("Fetched HTTP %s (%d bytes) from %s",
-                                 status, len(raw), source)
-                    if status and status >= 400:
-                        raise HTTPError(source, status, "bad status", hdrs=r.headers, fp=None)
-            else:
-                with open(source, "rb") as f:
-                    raw = f.read()
-                    logging.info("Read file (%d bytes): %s", len(raw), source)
-        except (HTTPError, URLError, TimeoutError) as e:
-            logging.error("Fetch error for %s: %s", source, e)
-            raise
-        except Exception as e:
-            logging.exception("Unhandled fetch exception for %s", source)
-            raise
-
-        try:
-            data = json.loads(raw.decode("utf-8"))
-        except Exception as e:
-            logging.error("JSON decode error: %s", e)
-            logging.debug("Raw head: %r", raw[:256])
-            raise
-
-        # Немного диагностики структуры
-        logging.debug(
-            "Top-level keys (%s): %s", label, list(data.keys())
+        scrape_error = GaugeMetricFamily(
+            "json_exporter_last_scrape_error",
+            "1 if the last scrape failed, otherwise 0"
         )
-        if label == "main":
-            stats = data.get("stats") or {}
-            for sec in ("inbound", "outbound", "user"):
-                obj = stats.get(sec) or {}
-                logging.debug("stats.%s keys: %s", sec, list(obj.keys()))
-            obs = data.get("observatory") or {}
-            logging.debug("observatory keys: %s", list(obs.keys()))
-        return data, len(raw)
+        scrape_duration = GaugeMetricFamily(
+            "xray_exporter_scrape_duration_seconds",
+            "Seconds spent fetching and parsing the JSON."
+        )
+        scrape_size = GaugeMetricFamily(
+            "xray_exporter_scrape_size_bytes",
+            "Response size in bytes."
+        )
+        last_scrape = GaugeMetricFamily(
+            "xray_exporter_last_scrape_timestamp_seconds",
+            "Unix timestamp of last successful scrape."
+        )
+        fetch_errors = CounterMetricFamily(
+            "xray_exporter_fetch_errors_total",
+            "Total number of fetch errors."
+        )
+        parse_errors = CounterMetricFamily(
+            "xray_exporter_parse_errors_total",
+            "Total number of JSON parse errors."
+        )
 
-    def _fetch(self):
-        return self._fetch_from_source(self.source, self.timeout, "main")
+        start = time.perf_counter()
+        api_data = None
+        ws_data = None
+        ui_inbounds = None
+        ui_online = None
 
-    @staticmethod
-    def _normalize_basepath(path: str | None) -> str:
-        if not path or path == "/":
-            return ""
-        p = path.strip()
-        if not p.startswith("/"):
-            p = "/" + p
-        return p.rstrip("/")
-
-    def _build_3xui_url(self, path: str) -> str:
-        p = path if path.startswith("/") else f"/{path}"
-        base = self.ui_basepath or ""
-        return f"{self.ui_scheme}://{self.ui_host}:{self.ui_port}{base}{p}"
-
-    def _get_3xui_session(self):
-        if self._ui_cookie_jar is None:
-            self._ui_cookie_jar = CookieJar()
-        ctx = ssl._create_unverified_context() if self.ui_insecure else None
-        if self._ui_opener is None:
-            if ctx:
-                self._ui_opener = build_opener(HTTPCookieProcessor(self._ui_cookie_jar), HTTPSHandler(context=ctx))
-            else:
-                self._ui_opener = build_opener(HTTPCookieProcessor(self._ui_cookie_jar))
-        headers = {"User-Agent": "json-exporter/1"}
-        if self.ui_bearer_token:
-            headers["Authorization"] = f"Bearer {self.ui_bearer_token}"
-        if self.ui_api_key:
-            headers["apiKey"] = self.ui_api_key
-        return self._ui_opener, headers
-
-    def _ensure_3xui_login(self, opener, headers, now_ts: float) -> bool:
-        if self.ui_bearer_token:
-            return True
-        if not (self.ui_username and self.ui_password):
-            return False
-        login_ttl = 86400  # 24 hours
-        if self._ui_last_login_ts and (now_ts - self._ui_last_login_ts) < login_ttl:
-            logging.info("3x-ui login skipped (cached session)")
-            return True
-        login_url = self._build_3xui_url(self.ui_login_path)
-        payload = json.dumps({"username": self.ui_username, "password": self.ui_password}).encode("utf-8")
-        req = Request(login_url, data=payload, headers={**headers, "Content-Type": "application/json"}, method="POST")
-        try:
-            with opener.open(req, timeout=self.api_timeout) as r:
-                if r.getcode() >= 400:
-                    raise HTTPError(login_url, r.getcode(), "bad status", hdrs=r.headers, fp=None)
-            self._ui_last_login_ts = now_ts
-            return True
-        except Exception as e:
-            logging.warning("3x-ui login failed: %s", e)
-            return False
-
-    def _fetch_3xui(self):
-        if not (self.ui_host and self.ui_port and (self.ui_bearer_token or (self.ui_username and self.ui_password))):
-            logging.info("3x-ui API skipped: missing host/port or credentials")
-            return None, None
-        opener, headers = self._get_3xui_session()
-        now_ts = time.time()
-        if not self._ensure_3xui_login(opener, headers, now_ts):
-            return None, None
-
-        def _get_json(url: str):
-            req = Request(url, headers=headers)
-            with opener.open(req, timeout=self.api_timeout) as r:
-                raw = r.read()
-            return json.loads(raw.decode("utf-8"))
-
-        inbounds = None
-        online = None
-        inbounds_ttl = 86400  # 24 hours
-        if self._ui_inbounds_cache is not None and (now_ts - self._ui_inbounds_cache_ts) < inbounds_ttl:
-            inbounds = self._ui_inbounds_cache
-            logging.info("3x-ui inbounds skipped (cached data)")
-        else:
+        data = None
+        if self.source:
             try:
-                inbounds = _get_json(self._build_3xui_url(self.ui_inbounds_path))
-                self._ui_inbounds_cache = inbounds
-                self._ui_inbounds_cache_ts = now_ts
-                logging.info("3x-ui inbounds fetched")
+                data, raw_len = self._fetch()
+                scrape_error.add_metric([], 0.0)
+                scrape_size.add_metric([], float(raw_len))
+                last_scrape.add_metric([], time.time())
+            except json.JSONDecodeError:
+                scrape_error.add_metric([], 1.0)
+                self._parse_errors += 1
+                parse_errors.add_metric([], float(self._parse_errors))
+                yield scrape_error
+                yield scrape_duration
+                yield parse_errors
+                return
+            except Exception:
+                scrape_error.add_metric([], 1.0)
+                self._fetch_errors += 1
+                fetch_errors.add_metric([], float(self._fetch_errors))
+                yield scrape_error
+                yield scrape_duration
+                yield fetch_errors
+                yield parse_errors
+                return
+            finally:
+                elapsed = time.perf_counter() - start
+                scrape_duration.add_metric([], float(elapsed))
+        else:
+            scrape_error.add_metric([], 0.0)
+            scrape_size.add_metric([], 0.0)
+            last_scrape.add_metric([], time.time())
+            elapsed = time.perf_counter() - start
+            scrape_duration.add_metric([], float(elapsed))
+
+        yield scrape_error
+        yield scrape_duration
+        yield scrape_size
+        yield last_scrape
+        fetch_errors.add_metric([], float(self._fetch_errors))
+        parse_errors.add_metric([], float(self._parse_errors))
+        yield fetch_errors
+        yield parse_errors
+
+        # ---- xray info ----
+        if data is not None:
+            version = (
+                data.get("version")
+                or data.get("xray_version")
+                or (data.get("xray") or {}).get("version")
+                or (data.get("core") or {}).get("version")
+            )
+            xray_info = GaugeMetricFamily("xray_info", "Xray version info.", labels=["version"])
+            if version:
+                xray_info.add_metric([str(version)], 1.0)
+            else:
+                logging.debug("xray version not found in payload")
+            yield xray_info
+
+        # ---- optional xray api ----
+        if self.api_source:
+            try:
+                api_data, _ = self._fetch_from_source(self.api_source, self.api_timeout, "api")
             except Exception as e:
-                logging.warning("3x-ui inbounds fetch failed: %s", e)
-        try:
-            online = _get_json(self._build_3xui_url(self.ui_online_path))
-            logging.info("3x-ui online clients fetched")
-        except Exception as e:
-            logging.warning("3x-ui online fetch failed: %s", e)
+                logging.warning("Xray API fetch failed: %s", e)
 
-        return inbounds, online
+        # ---- optional 3x-ui api ----
+        if self.ui_host and self.ui_port:
+            ui_inbounds, ui_online = self._fetch_3xui()
+            if self.ui_ws_url:
+                ws_data = self._fetch_3xui_ws()
 
-    def _cookie_header(self) -> str | None:
-        if not self._ui_cookie_jar:
-            return None
-        parts = []
-        for c in self._ui_cookie_jar:
-            if c.name and c.value:
-                parts.append(f"{c.name}={c.value}")
-        return "; ".join(parts) if parts else None
+        # ---- observatory ----
+        if data is not None:
+            obs = data.get("observatory", {}) or {}
+            if not obs:
+                logging.debug("observatory section is empty or missing")
+            alive = GaugeMetricFamily("xray_observatory_alive", "Alive flag (1/0).",
+                          labels=["outbound_tag"])
+            delay_g = GaugeMetricFamily("xray_observatory_delay_ms",
+                            "Delay (milliseconds).", labels=["outbound_tag"])
+            last_seen = GaugeMetricFamily("xray_observatory_last_seen_time",
+                              "Unix ts.", labels=["outbound_tag"])
+            last_try = GaugeMetricFamily("xray_observatory_last_try_time",
+                             "Unix ts.", labels=["outbound_tag"])
 
-    def _fetch_3xui_ws(self):
-        if not self.ui_ws_url:
-            return None
-        if websockets is None:
-            logging.warning("websockets package not available; WS disabled")
-            return None
-        now_ts = time.time()
-        if self._ui_ws_cache is not None and (now_ts - self._ui_ws_cache_ts) < self.ui_ws_cache_ttl:
-            return self._ui_ws_cache
+            for key, v in obs.items():
+                if not isinstance(v, dict):
+                    logging.warning("observatory.%s is not an object: %r", key, v)
+                    continue
+                outbound_tag = v.get("outbound_tag", key)
+                alive.add_metric([outbound_tag], 1.0 if v.get("alive") else 0.0)
 
-        opener, headers = self._get_3xui_session()
-        if not self._ensure_3xui_login(opener, headers, now_ts):
-            return None
-        cookie_header = self._cookie_header()
-        ws_headers = {}
-        if cookie_header:
-            ws_headers["Cookie"] = cookie_header
+                d = v.get("delay")
+                if d is not None:
+                    d = self._to_float(d, f"observatory.{outbound_tag}.delay")
+                    if d is not None:
+                        if self.delay_unit == "s":
+                            d = d * 1000.0
+                        delay_g.add_metric([outbound_tag], d)
 
-        async def _ws_once():
-            result = {"status": None, "traffic": None}
-            async with websockets.connect(self.ui_ws_url, additional_headers=ws_headers) as ws:
-                for _ in range(max(1, int(self.ui_ws_messages))):
-                    msg = await asyncio.wait_for(ws.recv(), timeout=self.ui_ws_timeout)
-                    try:
-                        data = json.loads(msg)
-                    except Exception:
+                ts = v.get("last_seen_time")
+                if ts is not None:
+                    ts_f = self._to_float(ts, f"observatory.{outbound_tag}.last_seen_time")
+                    if ts_f is not None:
+                        last_seen.add_metric([outbound_tag], ts_f)
+
+                ts = v.get("last_try_time")
+                if ts is not None:
+                    ts_f = self._to_float(ts, f"observatory.{outbound_tag}.last_try_time")
+                    if ts_f is not None:
+                        last_try.add_metric([outbound_tag], ts_f)
+
+            yield alive; yield delay_g; yield last_seen; yield last_try
+
+        # ---- traffic stats ----
+        online_users = 0
+        if data is not None:
+            stats = data.get("stats", {}) or {}
+            if not stats:
+                logging.debug("stats section is empty or missing")
+            total_down = CounterMetricFamily("xray_traffic_downlink_bytes_total",
+                             "Total downlink bytes.")
+            total_up = CounterMetricFamily("xray_traffic_uplink_bytes_total",
+                               "Total uplink bytes.")
+            inbound_down = CounterMetricFamily("xray_traffic_inbound_downlink_bytes_total",
+                               "Inbound downlink bytes.", labels=["protocol"])
+            inbound_up = CounterMetricFamily("xray_traffic_inbound_uplink_bytes_total",
+                             "Inbound uplink bytes.", labels=["protocol"])
+            outbound_down = CounterMetricFamily("xray_traffic_outbound_downlink_bytes_total",
+                                "Outbound downlink bytes.", labels=["outbound_tag"])
+            outbound_up = CounterMetricFamily("xray_traffic_outbound_uplink_bytes_total",
+                              "Outbound uplink bytes.", labels=["outbound_tag"])
+            user_down = CounterMetricFamily("xray_traffic_user_downlink_bytes_total",
+                            "User downlink bytes.", labels=["user"])
+            user_up = CounterMetricFamily("xray_traffic_user_uplink_bytes_total",
+                              "User uplink bytes.", labels=["user"])
+            user_up_bytes = GaugeMetricFamily("xray_traffic_user_uplink_bytes",
+                      "User uplink bytes (raw).", labels=["user"])
+            user_conn = GaugeMetricFamily("xray_user_conn_count",
+                    "User connection count (gauge).", labels=["user"])
+
+            total_dl = 0.0
+            total_ul = 0.0
+
+            for section in ("inbound", "outbound", "user"):
+                sec = stats.get(section, {}) or {}
+                if not isinstance(sec, dict):
+                    logging.warning("stats.%s is not an object: %r", section, type(sec))
+                    continue
+                for name, vv in sec.items():
+                    if vv is None:
+                        logging.debug("stats.%s.%s is null", section, name)
                         continue
-                    mtype = data.get("type")
-                    if mtype in ("status", "traffic"):
-                        result[mtype] = data
-                    if result.get("status") and result.get("traffic"):
-                        break
-            return result
+                    if not isinstance(vv, dict):
+                        logging.warning("stats.%s.%s is not an object: %r", section, name, vv)
+                        continue
+                    dl = vv.get("downlink")
+                    ul = vv.get("uplink")
+                    if dl is not None:
+                        dl_f = self._to_float(dl, f"stats.{section}.{name}.downlink")
+                        if dl_f is not None:
+                            total_dl += dl_f
+                    if ul is not None:
+                        ul_f = self._to_float(ul, f"stats.{section}.{name}.uplink")
+                        if ul_f is not None:
+                            total_ul += ul_f
+
+                    if section == "inbound":
+                        protocol = vv.get("protocol") or name
+                        if dl is not None:
+                            dl_f = self._to_float(dl, f"inbound.{protocol}.downlink")
+                            if dl_f is not None:
+                                inbound_down.add_metric([str(protocol)], dl_f)
+                        if ul is not None:
+                            ul_f = self._to_float(ul, f"inbound.{protocol}.uplink")
+                            if ul_f is not None:
+                                inbound_up.add_metric([str(protocol)], ul_f)
+
+                    if section == "outbound":
+                        outbound_tag = vv.get("outbound_tag") or name
+                        if dl is not None:
+                            dl_f = self._to_float(dl, f"outbound.{outbound_tag}.downlink")
+                            if dl_f is not None:
+                                outbound_down.add_metric([str(outbound_tag)], dl_f)
+                        if ul is not None:
+                            ul_f = self._to_float(ul, f"outbound.{outbound_tag}.uplink")
+                            if ul_f is not None:
+                                outbound_up.add_metric([str(outbound_tag)], ul_f)
+
+                    if section == "user":
+                        user = vv.get("user") or name
+                        if dl is not None:
+                            dl_f = self._to_float(dl, f"user.{user}.downlink")
+                            if dl_f is not None:
+                                user_down.add_metric([str(user)], dl_f)
+                        if ul is not None:
+                            ul_f = self._to_float(ul, f"user.{user}.uplink")
+                            if ul_f is not None:
+                                user_up.add_metric([str(user)], ul_f)
+                                user_up_bytes.add_metric([str(user)], ul_f)
+
+                        conn_val = (
+                            vv.get("conn_count")
+                            or vv.get("connCount")
+                            or vv.get("connection_count")
+                        )
+                        if conn_val is not None:
+                            conn_f = self._to_float(conn_val, f"user.{user}.conn_count")
+                            if conn_f is not None:
+                                user_conn.add_metric([str(user)], conn_f)
+                                if conn_f > 0:
+                                    online_users += 1
+
+            total_down.add_metric([], total_dl)
+            total_up.add_metric([], total_ul)
+
+            yield total_down; yield total_up
+            yield inbound_down; yield inbound_up
+            yield outbound_down; yield outbound_up
+            yield user_down; yield user_up; yield user_up_bytes; yield user_conn
 
         try:
             payload = asyncio.run(_ws_once())
@@ -468,31 +479,39 @@ class JsonCollector:
         # ---- optional 3x-ui api ----
         if self.ui_host and self.ui_port:
             ui_inbounds, ui_online = self._fetch_3xui()
-            if self.ui_ws_url:
-                ws_data = self._fetch_3xui_ws()
-
-        # ---- observatory ----
-        obs = data.get("observatory", {}) or {}
-        if not obs:
-            logging.debug("observatory section is empty or missing")
-        alive = GaugeMetricFamily("xray_observatory_alive", "Alive flag (1/0).",
-                      labels=["outbound_tag"])
-        delay_g = GaugeMetricFamily("xray_observatory_delay_ms",
-                        "Delay (milliseconds).", labels=["outbound_tag"])
-        last_seen = GaugeMetricFamily("xray_observatory_last_seen_time",
-                          "Unix ts.", labels=["outbound_tag"])
-        last_try = GaugeMetricFamily("xray_observatory_last_try_time",
-                         "Unix ts.", labels=["outbound_tag"])
-
-        for key, v in obs.items():
-            if not isinstance(v, dict):
-                logging.warning("observatory.%s is not an object: %r", key, v)
-                continue
-            outbound_tag = v.get("outbound_tag", key)
-            alive.add_metric([outbound_tag], 1.0 if v.get("alive") else 0.0)
-
-            d = v.get("delay")
-            if d is not None:
+            data = None
+            if self.source:
+                try:
+                    data, raw_len = self._fetch()
+                    scrape_error.add_metric([], 0.0)
+                    scrape_size.add_metric([], float(raw_len))
+                    last_scrape.add_metric([], time.time())
+                except json.JSONDecodeError:
+                    scrape_error.add_metric([], 1.0)
+                    self._parse_errors += 1
+                    parse_errors.add_metric([], float(self._parse_errors))
+                    yield scrape_error
+                    yield scrape_duration
+                    yield parse_errors
+                    return
+                except Exception:
+                    scrape_error.add_metric([], 1.0)
+                    self._fetch_errors += 1
+                    fetch_errors.add_metric([], float(self._fetch_errors))
+                    yield scrape_error
+                    yield scrape_duration
+                    yield fetch_errors
+                    yield parse_errors
+                    return
+                finally:
+                    elapsed = time.perf_counter() - start
+                    scrape_duration.add_metric([], float(elapsed))
+            else:
+                scrape_error.add_metric([], 0.0)
+                scrape_size.add_metric([], 0.0)
+                last_scrape.add_metric([], time.time())
+                elapsed = time.perf_counter() - start
+                scrape_duration.add_metric([], float(elapsed))
                 d = self._to_float(d, f"observatory.{outbound_tag}.delay")
                 if d is not None:
                     if self.delay_unit == "s":
@@ -531,46 +550,47 @@ class JsonCollector:
                           "Outbound uplink bytes.", labels=["outbound_tag"])
         user_down = CounterMetricFamily("xray_traffic_user_downlink_bytes_total",
                         "User downlink bytes.", labels=["user"])
-        user_up = CounterMetricFamily("xray_traffic_user_uplink_bytes_total",
-                          "User uplink bytes.", labels=["user"])
-        user_up_bytes = GaugeMetricFamily("xray_traffic_user_uplink_bytes",
-                  "User uplink bytes (raw).", labels=["user"])
-        user_conn = GaugeMetricFamily("xray_user_conn_count",
-                "User connection count (gauge).", labels=["user"])
+            if data is not None:
+                obs = data.get("observatory", {}) or {}
+                if not obs:
+                    logging.debug("observatory section is empty or missing")
+                alive = GaugeMetricFamily("xray_observatory_alive", "Alive flag (1/0).",
+                              labels=["outbound_tag"])
+                delay_g = GaugeMetricFamily("xray_observatory_delay_ms",
+                                "Delay (milliseconds).", labels=["outbound_tag"])
+                last_seen = GaugeMetricFamily("xray_observatory_last_seen_time",
+                                  "Unix ts.", labels=["outbound_tag"])
+                last_try = GaugeMetricFamily("xray_observatory_last_try_time",
+                                 "Unix ts.", labels=["outbound_tag"])
 
-        total_dl = 0.0
-        total_ul = 0.0
-        online_users = 0
+                for key, v in obs.items():
+                    if not isinstance(v, dict):
+                        logging.warning("observatory.%s is not an object: %r", key, v)
+                        continue
+                    outbound_tag = v.get("outbound_tag", key)
+                    alive.add_metric([outbound_tag], 1.0 if v.get("alive") else 0.0)
 
-        for section in ("inbound", "outbound", "user"):
-            sec = stats.get(section, {}) or {}
-            if not isinstance(sec, dict):
-                logging.warning("stats.%s is not an object: %r", section, type(sec))
-                continue
-            for name, vv in sec.items():
-                if vv is None:
-                    logging.debug("stats.%s.%s is null", section, name)
-                    continue
-                if not isinstance(vv, dict):
-                    logging.warning("stats.%s.%s is not an object: %r", section, name, vv)
-                    continue
-                dl = vv.get("downlink")
-                ul = vv.get("uplink")
-                if dl is not None:
-                    dl_f = self._to_float(dl, f"stats.{section}.{name}.downlink")
-                    if dl_f is not None:
-                        total_dl += dl_f
-                if ul is not None:
-                    ul_f = self._to_float(ul, f"stats.{section}.{name}.uplink")
-                    if ul_f is not None:
-                        total_ul += ul_f
+                    d = v.get("delay")
+                    if d is not None:
+                        d = self._to_float(d, f"observatory.{outbound_tag}.delay")
+                        if d is not None:
+                            if self.delay_unit == "s":
+                                d = d * 1000.0
+                            delay_g.add_metric([outbound_tag], d)
 
-                if section == "inbound":
-                    protocol = vv.get("protocol") or name
-                    if dl is not None:
-                        dl_f = self._to_float(dl, f"inbound.{protocol}.downlink")
-                        if dl_f is not None:
-                            inbound_down.add_metric([str(protocol)], dl_f)
+                    ts = v.get("last_seen_time")
+                    if ts is not None:
+                        ts_f = self._to_float(ts, f"observatory.{outbound_tag}.last_seen_time")
+                        if ts_f is not None:
+                            last_seen.add_metric([outbound_tag], ts_f)
+
+                    ts = v.get("last_try_time")
+                    if ts is not None:
+                        ts_f = self._to_float(ts, f"observatory.{outbound_tag}.last_try_time")
+                        if ts_f is not None:
+                            last_try.add_metric([outbound_tag], ts_f)
+
+                yield alive; yield delay_g; yield last_seen; yield last_try
                     if ul is not None:
                         ul_f = self._to_float(ul, f"inbound.{protocol}.uplink")
                         if ul_f is not None:
@@ -704,18 +724,19 @@ class JsonCollector:
         
 
         # ---- all numeric vars (generic) ----
-        all_vars = GaugeMetricFamily(
-            "xray_var",
-            "All numeric values from Xray debug/vars (path label).",
-            labels=["path"]
-        )
-        paths_logged = []
-        for path, val in self._iter_numeric_paths(data):
-            if not path:
-                continue
-            all_vars.add_metric([path], val)
-            paths_logged.append(path)
-        yield all_vars
+        if data is not None:
+            all_vars = GaugeMetricFamily(
+                "xray_var",
+                "All numeric values from Xray debug/vars (path label).",
+                labels=["path"]
+            )
+            paths_logged = []
+            for path, val in self._iter_numeric_paths(data):
+                if not path:
+                    continue
+                all_vars.add_metric([path], val)
+                paths_logged.append(path)
+            yield all_vars
 
 def _parse_listen(s: str):
     host, sep, port = s.rpartition(":")
@@ -816,4 +837,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+"""
 

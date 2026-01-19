@@ -10,12 +10,34 @@ services:
     networks:
       - dokploy-network
 
-  json-exporter:
-    build: ./exporter/
-    container_name: json-exporter
+  json-exporter-core:
+    build:
+      context: ./exporter/
+      dockerfile: Dockerfile.core
+    container_name: json-exporter-core
     restart: unless-stopped
     environment:
       SOURCE: "${EXPORTER_SOURCE}"
+      LISTEN: "0.0.0.0:9108"
+      TIMEOUT: "${EXPORTER_TIMEOUT:-5}"
+      DELAY_UNIT: "${EXPORTER_DELAY_UNIT:-ms}"   # поменяй на "s", если delay уже в секундах
+      LOG_LEVEL: "${EXPORTER_LOG_LEVEL:-INFO}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9108/metrics"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - dokploy-network
+
+  json-exporter-ui:
+    build:
+      context: ./exporter/
+      dockerfile: Dockerfile.ui
+    container_name: json-exporter-ui
+    restart: unless-stopped
+    environment:
       LISTEN: "0.0.0.0:9108"
       TIMEOUT: "${EXPORTER_TIMEOUT:-5}"
       DELAY_UNIT: "${EXPORTER_DELAY_UNIT:-ms}"   # поменяй на "s", если delay уже в секундах
@@ -79,7 +101,9 @@ services:
     depends_on:
       victoriametrics:
         condition: service_started
-      json-exporter:
+      json-exporter-core:
+        condition: service_started
+      json-exporter-ui:
         condition: service_started
       xray-checker:
         condition: service_healthy

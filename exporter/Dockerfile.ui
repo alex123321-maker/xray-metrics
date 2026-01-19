@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+RUN pip install --no-cache-dir prometheus-client websockets \
+ && apt-get update && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY exporter_common.py /app/exporter_common.py
+COPY json_exporter_ui.py /app/json_exporter_ui.py
+
+RUN useradd -m -u 10001 appuser
+USER appuser
+
+EXPOSE 9108
+
+ENV LISTEN="0.0.0.0:9108" \
+    TIMEOUT="5" \
+    DELAY_UNIT="ms"
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD curl -fsS "http://127.0.0.1:9108/metrics" || exit 1
+
+ENTRYPOINT ["python", "/app/json_exporter_ui.py"]
