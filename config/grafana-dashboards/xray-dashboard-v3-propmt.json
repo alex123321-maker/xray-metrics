@@ -38,7 +38,7 @@
       "fieldConfig": {
         "defaults": {
           "mappings": [
-            { "type": "value", "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } } }
+            { "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }
           ],
           "thresholds": {
             "mode": "absolute",
@@ -128,10 +128,28 @@
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "rate(xray_traffic_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) * 8", "legendFormat": "uplink", "refId": "A" },
-        { "expr": "rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\"}[2m]) * 8", "legendFormat": "downlink", "refId": "B" }
+        { "expr": "clamp_max(avg_over_time(rate(xray_traffic_uplink_bytes_total{job=\"xray-core-metrics\"}[2m])[5m:]) * 8, 10000000)", "legendFormat": "Исходящий", "refId": "A" },
+        { "expr": "clamp_max(avg_over_time(rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])[5m:]) * 8, 10000000)", "legendFormat": "Входящий", "refId": "B" }
       ],
-      "fieldConfig": { "defaults": { "unit": "bps" }, "overrides": [] }
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["lastNotNull"]
+        },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "lineWidth": 2,
+          "fillOpacity": 20,
+          "custom": {
+            "axisSoftMax": 5000000
+          }
+        },
+        "overrides": []
+      }
     },
     {
       "id": 8,

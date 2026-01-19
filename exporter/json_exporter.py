@@ -241,6 +241,11 @@ class JsonCollector:
                 if isinstance(inbound.get(key), list):
                     clients.extend([c for c in inbound.get(key) if isinstance(c, dict)])
             settings = inbound.get("settings")
+            if isinstance(settings, str):
+                try:
+                    settings = json.loads(settings)
+                except Exception as e:
+                    logging.debug("Failed to parse inbound.settings JSON: %s", e)
             if isinstance(settings, dict) and isinstance(settings.get("clients"), list):
                 clients.extend([c for c in settings.get("clients") if isinstance(c, dict)])
         return clients

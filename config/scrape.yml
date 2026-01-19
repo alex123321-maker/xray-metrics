@@ -7,7 +7,7 @@ scrape_configs:
       - targets: ['json-exporter:9108']
 
   - job_name: xray-checker
-    scrape_interval: 1m
+    scrape_interval: 20s
     static_configs:
       - targets: ['xray-checker:2112']
 
