@@ -7,6 +7,7 @@ scrape_configs:
       - targets: ['json-exporter:9108']
 
   - job_name: xray-checker
+    scrape_interval: 1m
     static_configs:
       - targets: ['xray-checker:2112']
 
@@ -14,4 +15,8 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ['grafana:3000']
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'up|process_start_time_seconds'
+        action: keep
 

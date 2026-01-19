@@ -127,6 +127,7 @@ class JsonCollector:
 
     def _fetch_3xui(self):
         if not (self.ui_host and self.ui_port and (self.ui_bearer_token or (self.ui_username and self.ui_password))):
+            logging.info("3x-ui API skipped: missing host/port or credentials")
             return None, None
 
         cj = CookieJar()
@@ -164,10 +165,12 @@ class JsonCollector:
         online = None
         try:
             inbounds = _get_json(self._build_3xui_url(self.ui_inbounds_path))
+            logging.info("3x-ui inbounds fetched")
         except Exception as e:
             logging.warning("3x-ui inbounds fetch failed: %s", e)
         try:
             online = _get_json(self._build_3xui_url(self.ui_online_path))
+            logging.info("3x-ui online clients fetched")
         except Exception as e:
             logging.warning("3x-ui online fetch failed: %s", e)
 
@@ -585,8 +588,6 @@ class JsonCollector:
                 continue
             all_vars.add_metric([path], val)
             paths_logged.append(path)
-        if paths_logged:
-            logging.debug("xray_var paths (%d): %s", len(paths_logged), paths_logged)
         yield all_vars
 
 def _parse_listen(s: str):

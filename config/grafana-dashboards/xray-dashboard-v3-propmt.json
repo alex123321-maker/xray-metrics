@@ -20,86 +20,20 @@
   "panels": [
     {
       "id": 1,
-      "type": "stat",
-      "title": "Статус Xray-сервиса",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+      "type": "state-timeline",
+      "title": "Статусы сервисов",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "up{job=\"xray-core-metrics\"}", "refId": "A" }
+        { "expr": "up{job=\"xray-core-metrics\"}", "legendFormat": "Xray", "refId": "A" },
+        { "expr": "up{job=\"xray-checker\"}", "legendFormat": "xray-checker", "refId": "B" },
+        { "expr": "up{job=\"grafana\"}", "legendFormat": "Grafana", "refId": "C" },
+        { "expr": "min(xray_proxy_status{job=\"xray-checker\"} or xray_checker_proxy_status{job=\"xray-checker\"} or probe_success{job=\"xray-checker\"})", "legendFormat": "Proxy", "refId": "D" }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "orientation": "auto",
-        "textMode": "value",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            { "type": "value", "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } } }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 1 }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 2,
-      "type": "stat",
-      "title": "Статус xray-checker",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "VM" },
-      "targets": [
-        { "expr": "up{job=\"xray-checker\"}", "refId": "A" }
-      ],
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "orientation": "auto",
-        "textMode": "value",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            { "type": "value", "options": { "0": { "text": "DOWN" }, "1": { "text": "UP" } } }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "red", "value": null },
-              { "color": "green", "value": 1 }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
-    {
-      "id": 3,
-      "type": "stat",
-      "title": "Статус Grafana",
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "VM" },
-      "targets": [
-        { "expr": "up{job=\"grafana\"}", "refId": "A" }
-      ],
-      "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
-        "orientation": "auto",
-        "textMode": "value",
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto"
+        "rowHeight": 0.9,
+        "mergeValues": false,
+        "showValue": "never"
       },
       "fieldConfig": {
         "defaults": {
