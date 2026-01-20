@@ -248,13 +248,16 @@ class JsonCollector:
 
             async with ws_conn as ws:
                 payload = None
+                best_payload = None
                 for _ in range(self.ui_ws_messages):
                     msg = await asyncio.wait_for(ws.recv(), timeout=self.ui_ws_timeout)
                     try:
                         payload = json.loads(msg)
                     except Exception:
                         continue
-                return payload
+                    if self._is_traffic_payload(payload):
+                        best_payload = payload
+                return best_payload or payload
 
         try:
             payload = asyncio.run(_ws_once())
@@ -333,19 +336,26 @@ class JsonCollector:
 
     @staticmethod
     def _extract_online_count(payload):
+        if isinstance(payload, dict) and payload.get("type") == "traffic":
+            payload = payload.get("payload")
         data = JsonCollector._unwrap_obj(payload)
         if isinstance(data, dict):
+            online_clients = data.get("onlineClients")
+            if isinstance(online_clients, list):
+                return float(len(online_clients))
+            last_online = data.get("lastOnlineMap")
+            if isinstance(last_online, dict):
+                return float(len(last_online))
             for k in ("count", "online", "onlineCount", "online_count"):
                 if k in data and isinstance(data[k], (int, float)):
                     return float(data[k])
-            for k in ("clients", "onlineClients", "list"):
-                if isinstance(data.get(k), list):
-                    return float(len(data.get(k)))
-            if isinstance(data.get("lastOnlineMap"), dict):
-                return float(len(data.get("lastOnlineMap")))
         if isinstance(data, list):
             return float(len(data))
         return None
+
+    @staticmethod
+    def _is_traffic_payload(payload):
+        return isinstance(payload, dict) and payload.get("type") == "traffic"
 
     def _extract_uptime(self, payload):
         if payload is None:
