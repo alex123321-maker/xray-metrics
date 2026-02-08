@@ -1,4 +1,14 @@
 {
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Prometheus / VictoriaMetrics datasource",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
   "annotations": {
     "list": [
       {
@@ -9,6 +19,17 @@
         "iconColor": "rgba(0, 211, 255, 1)",
         "name": "Annotations & Alerts",
         "type": "dashboard"
+      },
+      {
+        "datasource": { "type": "prometheus", "uid": "VM" },
+        "enable": true,
+        "expr": "changes(process_start_time_seconds{job=~\"xray-core-metrics|xray-ui-metrics|grafana\", instance=~\"$instance\"}[5m]) > 0",
+        "hide": false,
+        "iconColor": "rgba(255, 96, 96, 1)",
+        "name": "Рестарты сервисов",
+        "showIn": 0,
+        "textFormat": "{{job}} restart",
+        "type": "tags"
       }
     ]
   },
@@ -30,14 +51,15 @@
       "id": 1,
       "type": "state-timeline",
       "title": "Статусы сервисов",
+      "description": "Timeline доступности всех компонентов: Xray Core, UI, Checker, Grafana и прокси.",
       "gridPos": { "h": 6, "w": 12, "x": 0, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "up{job=\"xray-core-metrics\"}", "legendFormat": "Xray Core", "refId": "A" },
-        { "expr": "up{job=\"xray-ui-metrics\"}", "legendFormat": "Xray UI", "refId": "E" },
-        { "expr": "up{job=\"xray-checker\"}", "legendFormat": "Xray Checker", "refId": "B" },
-        { "expr": "up{job=\"grafana\"}", "legendFormat": "Grafana", "refId": "C" },
-        { "expr": "min(xray_proxy_status{job=\"xray-checker\"} or xray_checker_proxy_status{job=\"xray-checker\"} or probe_success{job=\"xray-checker\"})", "legendFormat": "Proxy", "refId": "D" }
+        { "expr": "up{job=\"xray-core-metrics\", instance=~\"$instance\"}", "legendFormat": "Xray Core", "refId": "A" },
+        { "expr": "up{job=\"xray-ui-metrics\", instance=~\"$instance\"}", "legendFormat": "Xray UI", "refId": "E" },
+        { "expr": "up{job=\"xray-checker\", instance=~\"$instance\"}", "legendFormat": "Xray Checker", "refId": "B" },
+        { "expr": "up{job=\"grafana\", instance=~\"$instance\"}", "legendFormat": "Grafana", "refId": "C" },
+        { "expr": "min(xray_proxy_status{job=\"xray-checker\", instance=~\"$instance\"}) or on() min(xray_checker_proxy_status{job=\"xray-checker\", instance=~\"$instance\"}) or on() min(probe_success{job=\"xray-checker\", instance=~\"$instance\"})", "legendFormat": "Proxy", "refId": "D" }
       ],
       "options": {
         "rowHeight": 0.9,
@@ -64,10 +86,11 @@
       "id": 4,
       "type": "stat",
       "title": "Uptime Grafana",
+      "description": "Время работы Grafana с последнего запуска.",
       "gridPos": { "h": 6, "w": 4, "x": 12, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "time() - process_start_time_seconds{job=\"grafana\"}", "refId": "A" }
+        { "expr": "time() - process_start_time_seconds{job=\"grafana\", instance=~\"$instance\"}", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -96,10 +119,11 @@
       "id": 5,
       "type": "stat",
       "title": "Uptime Xray",
+      "description": "Время работы Xray Core с последнего запуска.",
       "gridPos": { "h": 6, "w": 4, "x": 16, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "max(xray_uptime_seconds{job=~\"xray-ui-metrics|xray-core-metrics\"})", "refId": "A" }
+        { "expr": "max(xray_uptime_seconds{job=~\"xray-ui-metrics|xray-core-metrics\", instance=~\"$instance\"})", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -115,10 +139,11 @@
       "id": 6,
       "type": "stat",
       "title": "Онлайн пользователей",
+      "description": "Текущее количество активных пользователей прокси.",
       "gridPos": { "h": 6, "w": 4, "x": 20, "y": 1 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "max(xray_users_online{job=~\"xray-ui-metrics|xray-core-metrics\"})", "refId": "A" }
+        { "expr": "max(xray_users_online{job=~\"xray-ui-metrics|xray-core-metrics\", instance=~\"$instance\"})", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -142,11 +167,19 @@
       "id": 7,
       "type": "timeseries",
       "title": "Скорость трафика (байт/с) — входящий/исходящий",
+      "description": "Uplink — от клиентов к серверу (входящий). Downlink — от сервера к клиентам (исходящий).",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "avg_over_time(rate(xray_traffic_uplink_bytes_total{job=\"xray-core-metrics\"}[2m])[5m:])", "legendFormat": "Исходящий", "refId": "A" },
-        { "expr": "avg_over_time(rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])[5m:])", "legendFormat": "Входящий", "refId": "B" }
+        { "expr": "rate(xray_traffic_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m])", "legendFormat": "Входящий (uplink)", "refId": "A" },
+        { "expr": "rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m])", "legendFormat": "Исходящий (downlink)", "refId": "B" }
+      ],
+      "links": [
+        {
+          "title": "Открыть Explore",
+          "url": "/explore?orgId=1&left=%7B%22datasource%22:%22VM%22,%22range%22:%7B%22from%22:%22${__from}%22,%22to%22:%22${__to}%22%7D%7D",
+          "targetBlank": true
+        }
       ],
       "options": {
         "legend": {
@@ -169,13 +202,21 @@
       "id": 8,
       "type": "timeseries",
       "title": "Задержка прокси (мс, xray-checker)",
+      "description": "Средняя задержка (латентность) проверки прокси через xray-checker.",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 36 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
         {
-          "expr": "avg(xray_proxy_latency_ms{job=\"xray-checker\"}) or avg(xray_checker_proxy_latency_ms{job=\"xray-checker\"}) or avg(xray_checker_latency_ms{job=\"xray-checker\"}) or (avg(probe_duration_seconds{job=\"xray-checker\"}) * 1000)",
+          "expr": "avg(xray_proxy_latency_ms{job=\"xray-checker\", instance=~\"$instance\"}) or on() avg(xray_checker_proxy_latency_ms{job=\"xray-checker\", instance=~\"$instance\"}) or on() avg(xray_checker_latency_ms{job=\"xray-checker\", instance=~\"$instance\"}) or on() (avg(probe_duration_seconds{job=\"xray-checker\", instance=~\"$instance\"}) * 1000)",
           "legendFormat": "avg",
           "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Открыть Explore",
+          "url": "/explore?orgId=1&left=%7B%22datasource%22:%22VM%22,%22range%22:%7B%22from%22:%22${__from}%22,%22to%22:%22${__to}%22%7D%7D",
+          "targetBlank": true
         }
       ],
       "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] }
@@ -192,13 +233,21 @@
       "id": 9,
       "type": "timeseries",
       "title": "Активность пользователей (байт/с)",
+      "description": "Скорость трафика каждого пользователя (uplink+downlink). Подписи берутся из alias.",
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 26 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
         {
-          "expr": "sum by (user, alias) ((rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])) * on(user) group_left(alias) xray_user_alias_info{job=\"xray-ui-metrics\"}) or label_replace(sum by (user) (rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[2m])) unless on(user) xray_user_alias_info{job=\"xray-ui-metrics\"}, \"alias\", \"$1\", \"user\", \"(.*)\")",
+          "expr": "sum by (user, alias) ((rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[2m])) * on(user) group_left(alias) xray_user_alias_info{job=\"xray-ui-metrics\", instance=~\"$instance\", user=~\"$user\"}) or label_replace(sum by (user) (rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[2m])) unless on(user) xray_user_alias_info{job=\"xray-ui-metrics\", instance=~\"$instance\", user=~\"$user\"}, \"alias\", \"$1\", \"user\", \"(.*)\")",
           "legendFormat": "{{alias}}",
           "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Открыть Explore",
+          "url": "/explore?orgId=1&left=%7B%22datasource%22:%22VM%22,%22range%22:%7B%22from%22:%22${__from}%22,%22to%22:%22${__to}%22%7D%7D",
+          "targetBlank": true
         }
       ],
       "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] }
@@ -207,32 +256,33 @@
       "id": 10,
       "type": "table",
       "title": "Пользователи — email/подпись/трафик",
+      "description": "Таблица всех активных пользователей: email, alias, текущая скорость и суммарный трафик за 30 дней.",
       "gridPos": { "h": 9, "w": 12, "x": 12, "y": 26 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
         {
-          "expr": "rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[5m])",
+          "expr": "rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[5m])",
           "legendFormat": "{{user}}",
           "format": "table",
           "instant": true,
           "refId": "A"
         },
         {
-          "expr": "rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[5m])",
+          "expr": "rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[5m])",
           "legendFormat": "{{user}}",
           "format": "table",
           "instant": true,
           "refId": "B"
         },
         {
-          "expr": "xray_user_alias_info{job=\"xray-ui-metrics\"}",
+          "expr": "xray_user_alias_info{job=\"xray-ui-metrics\", instance=~\"$instance\", user=~\"$user\"}",
           "legendFormat": "{{user}}",
           "format": "table",
           "instant": true,
           "refId": "C"
         },
         {
-          "expr": "(increase(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\"}[30d]) + increase(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[30d])) / 1024 / 1024 / 1024",
+          "expr": "(increase(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[30d]) + increase(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[30d])) / 1024 / 1024 / 1024",
           "legendFormat": "{{user}}",
           "format": "table",
           "instant": true,
@@ -255,18 +305,36 @@
               "user": "Email",
               "alias": "Подпись",
               "Value": "Входящий трафик (B/s)",
-              "Value #A": "Входящий трафик (B/s)",
-              "Value #B": "Исходящий трафик (B/s)",
+              "Value #A": "Входящий (uplink, B/s)",
+              "Value #B": "Исходящий (downlink, B/s)",
               "Value #D": "Трафик за 30д (GB)"
             }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              { "fieldName": "Входящий (uplink, B/s)", "config": { "id": "greater", "options": { "value": 0 } } },
+              { "fieldName": "Исходящий (downlink, B/s)", "config": { "id": "greater", "options": { "value": 0 } } }
+            ],
+            "match": "any"
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              { "field": "Трафик за 30д (GB)", "desc": true }
+            ]
           }
         }
       ],
       "fieldConfig": {
         "defaults": {},
         "overrides": [
-          { "matcher": { "id": "byName", "options": "Входящий трафик (B/s)" }, "properties": [ { "id": "unit", "value": "Bps" } ] },
-          { "matcher": { "id": "byName", "options": "Исходящий трафик (B/s)" }, "properties": [ { "id": "unit", "value": "Bps" } ] },
+          { "matcher": { "id": "byName", "options": "Входящий (uplink, B/s)" }, "properties": [ { "id": "unit", "value": "Bps" } ] },
+          { "matcher": { "id": "byName", "options": "Исходящий (downlink, B/s)" }, "properties": [ { "id": "unit", "value": "Bps" } ] },
           { "matcher": { "id": "byName", "options": "Трафик за 30д (GB)" }, "properties": [ { "id": "unit", "value": "decgbytes" } ] }
         ]
       }
@@ -275,25 +343,34 @@
       "id": 11,
       "type": "piechart",
       "title": "Распределение трафика по протоколам inbound",
+      "description": "Доля каждого inbound-протокола в общем uplink-трафике.",
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "sum by (protocol) (rate(xray_traffic_inbound_uplink_bytes_total{job=\"xray-core-metrics\"}[10m])) * 8", "legendFormat": "{{protocol}}", "refId": "A" }
+        { "expr": "sum by (protocol) (rate(xray_traffic_inbound_uplink_bytes_total{job=\"xray-core-metrics\", protocol=~\"$protocol\"}[10m]))", "legendFormat": "{{protocol}}", "refId": "A" }
       ],
       "options": { "displayLabels": ["name", "percent"], "legend": { "displayMode": "list", "placement": "right" } },
-      "fieldConfig": { "defaults": { "unit": "bps" }, "overrides": [] }
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] }
     },
     {
       "id": 12,
       "type": "timeseries",
       "title": "Доступность прокси (xray-checker)",
+      "description": "Статус доступности каждого прокси по данным xray-checker (1=UP, 0=DOWN).",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 36 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
         {
-          "expr": "max by (name, address) (xray_proxy_status{job=\"xray-checker\"} or xray_checker_proxy_status{job=\"xray-checker\"} or probe_success{job=\"xray-checker\"})",
+          "expr": "max by (name, address) (xray_proxy_status{job=\"xray-checker\", instance=~\"$instance\"} or on(name, address) xray_checker_proxy_status{job=\"xray-checker\", instance=~\"$instance\"} or on(name, address) probe_success{job=\"xray-checker\", instance=~\"$instance\"})",
           "legendFormat": "{{name}} {{address}}",
           "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Открыть Explore",
+          "url": "/explore?orgId=1&left=%7B%22datasource%22:%22VM%22,%22range%22:%7B%22from%22:%22${__from}%22,%22to%22:%22${__to}%22%7D%7D",
+          "targetBlank": true
         }
       ],
       "fieldConfig": {
@@ -303,24 +380,34 @@
     },
     {
       "id": 13,
-      "type": "timeseries",
-      "title": "Общий трафик за день/месяц",
+      "type": "stat",
+      "title": "Общий трафик (uplink+downlink)",
+      "description": "Суммарный объём трафика (uplink + downlink) за 24 часа и за 30 дней.",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "increase(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\"}[24h])", "legendFormat": "24h", "refId": "A" },
-        { "expr": "increase(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\"}[30d])", "legendFormat": "30d", "refId": "B" }
+        { "expr": "increase(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[24h]) + increase(xray_traffic_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[24h])", "legendFormat": "За 24ч", "refId": "A" },
+        { "expr": "increase(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[30d]) + increase(xray_traffic_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[30d])", "legendFormat": "За 30д", "refId": "B" }
       ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "horizontal",
+        "textMode": "value_and_name",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
       "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
     },
     {
       "id": 14,
       "type": "stat",
       "title": "Суммарный трафик пользователей (30d, GB)",
-      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 16 },
+      "description": "Суммарный трафик всех пользователей (uplink + downlink) за последние 30 дней в гигабайтах.",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "sum(increase(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\"}[30d])) / 1024 / 1024 / 1024", "refId": "A" }
+        { "expr": "(sum(increase(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[30d])) + sum(increase(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[30d]))) / 1024 / 1024 / 1024", "refId": "A" }
       ],
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
@@ -336,10 +423,11 @@
       "id": 15,
       "type": "timeseries",
       "title": "Память экспортера",
+      "description": "RSS-память процесса экспортера метрик.",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 45 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "process_resident_memory_bytes{job=\"xray-core-metrics\"}", "refId": "A" }
+        { "expr": "process_resident_memory_bytes{job=\"xray-core-metrics\", instance=~\"$instance\"}", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
     },
@@ -347,10 +435,11 @@
       "id": 16,
       "type": "timeseries",
       "title": "CPU экспортера (cores)",
+      "description": "Потребление CPU процессом экспортера (в ядрах).",
       "gridPos": { "h": 8, "w": 8, "x": 8, "y": 45 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "rate(process_cpu_seconds_total{job=\"xray-core-metrics\"}[5m])", "refId": "A" }
+        { "expr": "rate(process_cpu_seconds_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m])", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "unit": "cores" }, "overrides": [] }
     },
@@ -358,10 +447,11 @@
       "id": 17,
       "type": "timeseries",
       "title": "Длительность скрейпа экспортера (сек)",
+      "description": "Время, затраченное экспортером на получение и парсинг данных.",
       "gridPos": { "h": 8, "w": 8, "x": 16, "y": 45 },
       "datasource": { "type": "prometheus", "uid": "VM" },
       "targets": [
-        { "expr": "xray_exporter_scrape_duration_seconds{job=\"xray-core-metrics\"}", "refId": "A" }
+        { "expr": "xray_exporter_scrape_duration_seconds{job=\"xray-core-metrics\", instance=~\"$instance\"}", "refId": "A" }
       ],
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
     },
@@ -380,13 +470,634 @@
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 44 },
       "collapsed": false,
       "panels": []
+    },
+    {
+      "id": 105,
+      "type": "row",
+      "title": "SLO и топ пользователей",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 53 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Uptime Xray Core (24ч, %)",
+      "description": "SLO: процент доступности Xray Core за последние 24 часа.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 54 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        { "expr": "avg_over_time(up{job=\"xray-core-metrics\", instance=~\"$instance\"}[24h]) * 100", "refId": "A" }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 99 },
+              { "color": "green", "value": 99.9 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Uptime Xray UI (24ч, %)",
+      "description": "SLO: процент доступности Xray UI за последние 24 часа.",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 54 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        { "expr": "avg_over_time(up{job=\"xray-ui-metrics\", instance=~\"$instance\"}[24h]) * 100", "refId": "A" }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 99 },
+              { "color": "green", "value": 99.9 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 20,
+      "type": "table",
+      "title": "Топ пользователей по трафику (24ч)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 54 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "topk(5, sum by (user) (increase(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[24h]) + increase(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[24h])))",
+          "legendFormat": "{{user}}",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "expr": "xray_user_alias_info{job=\"xray-ui-metrics\", instance=~\"$instance\", user=~\"$user\"}",
+          "legendFormat": "{{user}}",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        }
+      ],
+      "transformations": [
+        { "id": "joinByField", "options": { "byField": "user", "mode": "outer" } },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "__name__": true,
+              "job": true,
+              "instance": true,
+              "Value #B": true
+            },
+            "renameByName": {
+              "user": "Email",
+              "alias": "Подпись",
+              "Value": "Трафик за 24ч",
+              "Value #A": "Трафик за 24ч"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": { "sort": [{ "field": "Трафик за 24ч", "desc": true }] }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "Топ пользователей по трафику (7д)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 58 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "topk(5, sum by (user) (increase(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[7d]) + increase(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[7d])))",
+          "legendFormat": "{{user}}",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "expr": "xray_user_alias_info{job=\"xray-ui-metrics\", instance=~\"$instance\", user=~\"$user\"}",
+          "legendFormat": "{{user}}",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        }
+      ],
+      "transformations": [
+        { "id": "joinByField", "options": { "byField": "user", "mode": "outer" } },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "__name__": true,
+              "job": true,
+              "instance": true,
+              "Value #B": true
+            },
+            "renameByName": {
+              "user": "Email",
+              "alias": "Подпись",
+              "Value": "Трафик за 7д",
+              "Value #A": "Трафик за 7д"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": { "sort": [{ "field": "Трафик за 7д", "desc": true }] }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Трафик сейчас vs 7д назад (B/s)",
+      "description": "Сравнение текущей скорости downlink-трафика с аналогичным периодом 7 дней назад.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 62 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m])",
+          "legendFormat": "Сейчас",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m] offset 7d)",
+          "legendFormat": "7д назад",
+          "refId": "B"
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": ["lastNotNull"]
+        },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "lineWidth": 2,
+          "fillOpacity": 10
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 23,
+      "type": "table",
+      "title": "Топ протоколы по трафику (24ч)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 66 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "topk(5, sum by (protocol) (increase(xray_traffic_inbound_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", protocol=~\"$protocol\"}[24h]) + increase(xray_traffic_inbound_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", protocol=~\"$protocol\"}[24h])))",
+          "legendFormat": "{{protocol}}",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "protocol": "Protocol",
+              "Value": "Трафик за 24ч (B)"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Uptime Xray Checker (24ч, %)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 74 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        { "expr": "avg_over_time(up{job=\"xray-checker\", instance=~\"$instance\"}[24h]) * 100", "refId": "A" }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 99 },
+              { "color": "green", "value": 99.9 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Доступность прокси (24ч, %)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 74 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "avg(avg_over_time((xray_proxy_status{job=\"xray-checker\", instance=~\"$instance\"} or on(instance) xray_checker_proxy_status{job=\"xray-checker\", instance=~\"$instance\"} or on(instance) probe_success{job=\"xray-checker\", instance=~\"$instance\"})[24h])) * 100",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 99 },
+              { "color": "green", "value": 99.9 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 26,
+      "type": "table",
+      "title": "Топ инстансы по трафику (24ч)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 74 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "topk(5, sum by (instance) (increase(xray_traffic_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[24h]) + increase(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[24h])))",
+          "legendFormat": "{{instance}}",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true
+            },
+            "renameByName": {
+              "instance": "Instance",
+              "Value": "Трафик за 24ч (B)"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "bytes" },
+        "overrides": []
+      }
+    },
+    {
+      "id": 106,
+      "type": "row",
+      "title": "Аномалии",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 82 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 27,
+      "type": "stat",
+      "title": "Δ трафика сейчас vs 7д назад (%)",
+      "description": "Процентное отклонение текущего downlink-трафика от значения 7 дней назад.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 83 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "(rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m]) - rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m] offset 7d)) / clamp_min(rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m] offset 7d), 100) * 100",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": -50 },
+              { "color": "green", "value": -10 },
+              { "color": "orange", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 28,
+      "type": "timeseries",
+      "title": "Отклонение трафика от 7д назад (%)",
+      "description": "График процентного отклонения downlink-трафика по сравнению с 7 днями назад.",
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 83 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "(rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m]) - rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m] offset 7d)) / clamp_min(rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m] offset 7d), 100) * 100",
+          "legendFormat": "Δ %",
+          "refId": "A"
+        }
+      ],
+      "links": [
+        {
+          "title": "Открыть Explore",
+          "url": "/explore?orgId=1&left=%7B%22datasource%22:%22VM%22,%22range%22:%7B%22from%22:%22${__from}%22,%22to%22:%22${__to}%22%7D%7D",
+          "targetBlank": true
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "lineWidth": 2,
+          "fillOpacity": 10
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 107,
+      "type": "row",
+      "title": "Сигналы",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 91 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "Минимальный трафик за 15м (B/s)",
+      "description": "Минимальное значение суммарного трафика за последние 15 минут. Помогает обнаружить провалы.",
+      "gridPos": { "h": 4, "w": 12, "x": 0, "y": 92 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "min_over_time((sum(rate(xray_traffic_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m])) + sum(rate(xray_traffic_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\"}[5m])))[15m:])",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "value",
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 1 },
+              { "color": "green", "value": 10 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 108,
+      "type": "row",
+      "title": "Пользователи — динамика",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 100 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Онлайн пользователей (динамика)",
+      "description": "График количества онлайн-пользователей во времени.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 101 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "max(xray_users_online{job=~\"xray-ui-metrics|xray-core-metrics\", instance=~\"$instance\"})",
+          "legendFormat": "online",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": { "decimals": 0 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Топ пользователей по текущему трафику (B/s)",
+      "description": "Топ-5 пользователей по текущей скорости трафика (uplink+downlink).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 101 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "topk(5, sum by (user) (rate(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[2m]) + rate(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[2m])))",
+          "legendFormat": "{{user}}",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] },
+        "tooltip": { "mode": "single" }
+      },
+      "fieldConfig": {
+        "defaults": { "unit": "Bps", "lineWidth": 2, "fillOpacity": 10 },
+        "overrides": []
+      }
+    },
+    {
+      "id": 109,
+      "type": "row",
+      "title": "Пользователи — распределение",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 109 },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 33,
+      "type": "piechart",
+      "title": "Доля трафика по пользователям (24ч)",
+      "description": "Распределение суммарного трафика между топ-10 пользователями за 24 часа.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 110 },
+      "datasource": { "type": "prometheus", "uid": "VM" },
+      "targets": [
+        {
+          "expr": "topk(10, sum by (user) (increase(xray_traffic_user_uplink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[24h]) + increase(xray_traffic_user_downlink_bytes_total{job=\"xray-core-metrics\", instance=~\"$instance\", user=~\"$user\"}[24h])))",
+          "legendFormat": "{{user}}",
+          "refId": "A"
+        }
+      ],
+      "options": { "displayLabels": ["name", "percent"], "legend": { "displayMode": "list", "placement": "right" } },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
     }
   ],
-  "refresh": "30s",
+  "refresh": "2m",
   "schemaVersion": 39,
   "style": "dark",
   "tags": ["xray"],
-  "templating": { "list": [] },
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "job",
+        "label": "Job",
+        "datasource": { "type": "prometheus", "uid": "VM" },
+        "query": "label_values(up, job)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "hide": 2,
+        "sort": 1
+      },
+      {
+        "type": "query",
+        "name": "instance",
+        "label": "Instance",
+        "datasource": { "type": "prometheus", "uid": "VM" },
+        "query": "label_values(up{job=~\"$job\"}, instance)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "hide": 0,
+        "sort": 1
+      },
+      {
+        "type": "query",
+        "name": "user",
+        "label": "User",
+        "datasource": { "type": "prometheus", "uid": "VM" },
+        "query": "label_values(xray_traffic_user_uplink_bytes_total, user)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "hide": 0,
+        "sort": 1
+      },
+      {
+        "type": "query",
+        "name": "protocol",
+        "label": "Protocol",
+        "datasource": { "type": "prometheus", "uid": "VM" },
+        "query": "label_values(xray_traffic_inbound_uplink_bytes_total, protocol)",
+        "refresh": 2,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "hide": 0,
+        "sort": 1
+      }
+    ]
+  },
   "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
