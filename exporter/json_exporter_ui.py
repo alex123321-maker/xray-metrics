@@ -224,6 +224,7 @@ class XuiCollector:
             async with ws_conn as ws:
                 payload = None
                 best_payload = None
+                status_payload = None
                 for _ in range(self.ui_ws_messages):
                     msg = await asyncio.wait_for(ws.recv(), timeout=self.ui_ws_timeout)
                     try:
@@ -232,7 +233,11 @@ class XuiCollector:
                         continue
                     if self._is_traffic_payload(payload):
                         best_payload = payload
-                return best_payload or payload
+                    if self._is_status_payload(payload):
+                        status_payload = payload
+                if best_payload or status_payload:
+                    return {"traffic": best_payload, "status": status_payload}
+                return payload
 
         try:
             payload = asyncio.run(_ws_once())
@@ -311,6 +316,12 @@ class XuiCollector:
 
     @staticmethod
     def _extract_online_count(payload):
+        if isinstance(payload, dict) and ("traffic" in payload or "status" in payload):
+            for candidate in (payload.get("traffic"), payload.get("status")):
+                val = XuiCollector._extract_online_count(candidate)
+                if val is not None:
+                    return val
+            return None
         if isinstance(payload, dict) and payload.get("type") == "traffic":
             payload = payload.get("payload")
         data = XuiCollector._unwrap_obj(payload)
@@ -332,13 +343,28 @@ class XuiCollector:
     def _is_traffic_payload(payload):
         return isinstance(payload, dict) and payload.get("type") == "traffic"
 
+    @staticmethod
+    def _is_status_payload(payload):
+        return isinstance(payload, dict) and payload.get("type") == "status"
+
     def _extract_uptime(self, payload):
         if payload is None:
             return None
-        keys = {"uptime", "uptime_seconds", "uptimeSeconds", "uptimeSec"}
+        if isinstance(payload, dict) and ("traffic" in payload or "status" in payload):
+            for candidate in (payload.get("status"), payload.get("traffic")):
+                val = self._extract_uptime(candidate)
+                if val is not None:
+                    return val
+            return None
+        if isinstance(payload, dict) and payload.get("type") in {"status", "traffic"}:
+            payload = payload.get("payload")
+        keys = {"uptime", "uptime_seconds", "uptimeSeconds", "uptimeSec", "uptime_ms", "uptimeMs"}
         found = self._find_numeric_by_keys(payload, keys)
         if found:
-            return found[0]
+            val = found[0]
+            if found[1] in {"uptime_ms", "uptimeMs"}:
+                return val / 1000.0
+            return val
         return None
 
     def _find_numeric_by_keys(self, obj, keys: set[str]):
