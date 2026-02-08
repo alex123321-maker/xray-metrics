@@ -1,9 +1,524 @@
 #!/usr/bin/env python3
-from exporter_common import run_exporter
+import argparse
+import json
+import logging
+import os
+import time
+from urllib.request import Request, urlopen
+
+from prometheus_client import REGISTRY, start_http_server
+from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
+
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s %(levelname)s %(message)s",
+)
+
+
+def _parse_listen(value: str):
+    if ":" not in value:
+        return value, 9108
+    host, port = value.rsplit(":", 1)
+    return host, int(port)
+
+
+class XrayCollector:
+    def __init__(
+        self,
+        source: str,
+        timeout: int,
+        delay_unit: str,
+        api_source: str | None = None,
+        api_timeout: int | None = None,
+        user_map_file: str | None = None,
+    ):
+        self.source = source
+        self.timeout = timeout
+        self.delay_unit = delay_unit
+        self.api_source = api_source
+        self.api_timeout = api_timeout or timeout
+        self.user_map_file = user_map_file
+
+        self._fetch_errors = 0
+        self._parse_errors = 0
+
+    def _fetch_from_source(self, source: str, timeout: int):
+        if source.startswith("http://") or source.startswith("https://"):
+            req = Request(source, headers={"User-Agent": "xray-exporter"})
+            with urlopen(req, timeout=timeout) as r:
+                raw = r.read()
+        else:
+            with open(source, "rb") as f:
+                raw = f.read()
+        return json.loads(raw.decode("utf-8")), len(raw)
+
+    def _fetch(self):
+        return self._fetch_from_source(self.source, self.timeout)
+
+    @staticmethod
+    def _iter_numeric_paths(obj, prefix=""):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                path = f"{prefix}.{k}" if prefix else str(k)
+                yield from XrayCollector._iter_numeric_paths(v, path)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj):
+                path = f"{prefix}[{i}]"
+                yield from XrayCollector._iter_numeric_paths(v, path)
+        else:
+            if isinstance(obj, (int, float)):
+                yield prefix, float(obj)
+
+    @staticmethod
+    def _load_user_map(path: str | None) -> dict:
+        if not path:
+            return {}
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+        except FileNotFoundError:
+            logging.warning("User map file not found: %s", path)
+            return {}
+        except Exception as e:
+            logging.warning("Failed to read user map file %s: %s", path, e)
+            return {}
+
+        if isinstance(raw, dict):
+            return {str(k): str(v) for k, v in raw.items()}
+        if isinstance(raw, list):
+            out = {}
+            for item in raw:
+                if not isinstance(item, dict):
+                    continue
+                user = item.get("user") or item.get("email") or item.get("id")
+                alias = item.get("alias") or item.get("label") or item.get("comment")
+                if user and alias is not None:
+                    out[str(user)] = str(alias)
+            return out
+        logging.warning("Unsupported user map format in %s", path)
+        return {}
+
+    @staticmethod
+    def _extract_online_count(payload):
+        if isinstance(payload, dict) and payload.get("type") == "traffic":
+            payload = payload.get("payload")
+        data = payload.get("obj") if isinstance(payload, dict) and "obj" in payload else payload
+        if isinstance(data, dict):
+            online_clients = data.get("onlineClients")
+            if isinstance(online_clients, list):
+                return float(len(online_clients))
+            last_online = data.get("lastOnlineMap")
+            if isinstance(last_online, dict):
+                return float(len(last_online))
+            for k in ("count", "online", "onlineCount", "online_count"):
+                if k in data and isinstance(data[k], (int, float)):
+                    return float(data[k])
+        if isinstance(data, list):
+            return float(len(data))
+        return None
+
+    @staticmethod
+    def _to_float(val, ctx):
+        try:
+            return float(val)
+        except Exception as e:
+            logging.warning("Bad numeric value for %s: %r (%s)", ctx, val, e)
+            return None
+
+    def _extract_uptime(self, payload):
+        if payload is None:
+            return None
+        keys = {"uptime", "uptime_seconds", "uptimeSeconds", "uptimeSec"}
+        found = self._find_numeric_by_keys(payload, keys)
+        if found:
+            return found[0]
+        return None
+
+    def _find_numeric_by_keys(self, obj, keys: set[str]):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                if k in keys:
+                    val = self._to_float(v, f"api.{k}")
+                    if val is not None:
+                        return val, k
+                found = self._find_numeric_by_keys(v, keys)
+                if found:
+                    return found
+        if isinstance(obj, list):
+            for v in obj:
+                found = self._find_numeric_by_keys(v, keys)
+                if found:
+                    return found
+        return None
+
+    def collect(self):
+        scrape_error = GaugeMetricFamily(
+            "json_exporter_last_scrape_error",
+            "1 if the last scrape failed, otherwise 0",
+        )
+        scrape_duration = GaugeMetricFamily(
+            "xray_exporter_scrape_duration_seconds",
+            "Seconds spent fetching and parsing the JSON.",
+        )
+        scrape_size = GaugeMetricFamily(
+            "xray_exporter_scrape_size_bytes",
+            "Response size in bytes.",
+        )
+        last_scrape = GaugeMetricFamily(
+            "xray_exporter_last_scrape_timestamp_seconds",
+            "Unix timestamp of last successful scrape.",
+        )
+        fetch_errors = CounterMetricFamily(
+            "xray_exporter_fetch_errors_total",
+            "Total number of fetch errors.",
+        )
+        parse_errors = CounterMetricFamily(
+            "xray_exporter_parse_errors_total",
+            "Total number of JSON parse errors.",
+        )
+
+        start = time.perf_counter()
+        api_data = None
+
+        data = None
+        try:
+            data, raw_len = self._fetch()
+            scrape_error.add_metric([], 0.0)
+            scrape_size.add_metric([], float(raw_len))
+            last_scrape.add_metric([], time.time())
+        except json.JSONDecodeError:
+            scrape_error.add_metric([], 1.0)
+            self._parse_errors += 1
+            parse_errors.add_metric([], float(self._parse_errors))
+            yield scrape_error
+            yield scrape_duration
+            yield parse_errors
+            return
+        except Exception:
+            scrape_error.add_metric([], 1.0)
+            self._fetch_errors += 1
+            fetch_errors.add_metric([], float(self._fetch_errors))
+            yield scrape_error
+            yield scrape_duration
+            yield fetch_errors
+            yield parse_errors
+            return
+        finally:
+            elapsed = time.perf_counter() - start
+            scrape_duration.add_metric([], float(elapsed))
+
+        yield scrape_error
+        yield scrape_duration
+        yield scrape_size
+        yield last_scrape
+        fetch_errors.add_metric([], float(self._fetch_errors))
+        parse_errors.add_metric([], float(self._parse_errors))
+        yield fetch_errors
+        yield parse_errors
+
+        version = (
+            data.get("version")
+            or data.get("xray_version")
+            or (data.get("xray") or {}).get("version")
+            or (data.get("core") or {}).get("version")
+        )
+        xray_info = GaugeMetricFamily("xray_info", "Xray version info.", labels=["version"])
+        if version:
+            xray_info.add_metric([str(version)], 1.0)
+        yield xray_info
+
+        if self.api_source:
+            try:
+                api_data, _ = self._fetch_from_source(self.api_source, self.api_timeout)
+            except Exception as e:
+                logging.warning("Xray API fetch failed: %s", e)
+
+        obs = data.get("observatory", {}) or {}
+        alive = GaugeMetricFamily("xray_observatory_alive", "Alive flag (1/0).", labels=["outbound_tag"])
+        delay_g = GaugeMetricFamily("xray_observatory_delay_ms", "Delay (milliseconds).", labels=["outbound_tag"])
+        last_seen = GaugeMetricFamily("xray_observatory_last_seen_time", "Unix ts.", labels=["outbound_tag"])
+        last_try = GaugeMetricFamily("xray_observatory_last_try_time", "Unix ts.", labels=["outbound_tag"])
+
+        for key, v in obs.items():
+            if not isinstance(v, dict):
+                continue
+            outbound_tag = v.get("outbound_tag", key)
+            alive.add_metric([outbound_tag], 1.0 if v.get("alive") else 0.0)
+
+            d = v.get("delay")
+            if d is not None:
+                d = self._to_float(d, f"observatory.{outbound_tag}.delay")
+                if d is not None:
+                    if self.delay_unit == "s":
+                        d = d * 1000.0
+                    delay_g.add_metric([outbound_tag], d)
+
+            ts = v.get("last_seen_time")
+            if ts is not None:
+                ts_f = self._to_float(ts, f"observatory.{outbound_tag}.last_seen_time")
+                if ts_f is not None:
+                    last_seen.add_metric([outbound_tag], ts_f)
+
+            ts = v.get("last_try_time")
+            if ts is not None:
+                ts_f = self._to_float(ts, f"observatory.{outbound_tag}.last_try_time")
+                if ts_f is not None:
+                    last_try.add_metric([outbound_tag], ts_f)
+
+        yield alive
+        yield delay_g
+        yield last_seen
+        yield last_try
+
+        online_users = 0
+        stats = data.get("stats", {}) or {}
+        total_down = CounterMetricFamily("xray_traffic_downlink_bytes_total", "Total downlink bytes.")
+        total_up = CounterMetricFamily("xray_traffic_uplink_bytes_total", "Total uplink bytes.")
+        inbound_down = CounterMetricFamily(
+            "xray_traffic_inbound_downlink_bytes_total",
+            "Inbound downlink bytes.",
+            labels=["protocol"],
+        )
+        inbound_up = CounterMetricFamily(
+            "xray_traffic_inbound_uplink_bytes_total",
+            "Inbound uplink bytes.",
+            labels=["protocol"],
+        )
+        outbound_down = CounterMetricFamily(
+            "xray_traffic_outbound_downlink_bytes_total",
+            "Outbound downlink bytes.",
+            labels=["outbound_tag"],
+        )
+        outbound_up = CounterMetricFamily(
+            "xray_traffic_outbound_uplink_bytes_total",
+            "Outbound uplink bytes.",
+            labels=["outbound_tag"],
+        )
+        user_down = CounterMetricFamily(
+            "xray_traffic_user_downlink_bytes_total",
+            "User downlink bytes.",
+            labels=["user"],
+        )
+        user_up = CounterMetricFamily(
+            "xray_traffic_user_uplink_bytes_total",
+            "User uplink bytes.",
+            labels=["user"],
+        )
+        user_up_bytes = GaugeMetricFamily(
+            "xray_traffic_user_uplink_bytes",
+            "User uplink bytes (raw).",
+            labels=["user"],
+        )
+        user_conn = GaugeMetricFamily(
+            "xray_user_conn_count",
+            "User connection count (gauge).",
+            labels=["user"],
+        )
+
+        total_dl = 0.0
+        total_ul = 0.0
+
+        for section in ("inbound", "outbound", "user"):
+            sec = stats.get(section, {}) or {}
+            if not isinstance(sec, dict):
+                continue
+            for name, vv in sec.items():
+                if vv is None or not isinstance(vv, dict):
+                    continue
+                dl = vv.get("downlink")
+                ul = vv.get("uplink")
+                if dl is not None:
+                    dl_f = self._to_float(dl, f"stats.{section}.{name}.downlink")
+                    if dl_f is not None:
+                        total_dl += dl_f
+                if ul is not None:
+                    ul_f = self._to_float(ul, f"stats.{section}.{name}.uplink")
+                    if ul_f is not None:
+                        total_ul += ul_f
+
+                if section == "inbound":
+                    protocol = vv.get("protocol") or name
+                    if dl is not None:
+                        dl_f = self._to_float(dl, f"inbound.{protocol}.downlink")
+                        if dl_f is not None:
+                            inbound_down.add_metric([str(protocol)], dl_f)
+                    if ul is not None:
+                        ul_f = self._to_float(ul, f"inbound.{protocol}.uplink")
+                        if ul_f is not None:
+                            inbound_up.add_metric([str(protocol)], ul_f)
+
+                if section == "outbound":
+                    outbound_tag = vv.get("outbound_tag") or name
+                    if dl is not None:
+                        dl_f = self._to_float(dl, f"outbound.{outbound_tag}.downlink")
+                        if dl_f is not None:
+                            outbound_down.add_metric([str(outbound_tag)], dl_f)
+                    if ul is not None:
+                        ul_f = self._to_float(ul, f"outbound.{outbound_tag}.uplink")
+                        if ul_f is not None:
+                            outbound_up.add_metric([str(outbound_tag)], ul_f)
+
+                if section == "user":
+                    user = vv.get("user") or name
+                    if dl is not None:
+                        dl_f = self._to_float(dl, f"user.{user}.downlink")
+                        if dl_f is not None:
+                            user_down.add_metric([str(user)], dl_f)
+                    if ul is not None:
+                        ul_f = self._to_float(ul, f"user.{user}.uplink")
+                        if ul_f is not None:
+                            user_up.add_metric([str(user)], ul_f)
+                            user_up_bytes.add_metric([str(user)], ul_f)
+
+                    conn_val = (
+                        vv.get("conn_count")
+                        or vv.get("connCount")
+                        or vv.get("connection_count")
+                    )
+                    if conn_val is not None:
+                        conn_f = self._to_float(conn_val, f"user.{user}.conn_count")
+                        if conn_f is not None:
+                            user_conn.add_metric([str(user)], conn_f)
+                            if conn_f > 0:
+                                online_users += 1
+
+        total_down.add_metric([], total_dl)
+        total_up.add_metric([], total_ul)
+
+        yield total_down
+        yield total_up
+        yield inbound_down
+        yield inbound_up
+        yield outbound_down
+        yield outbound_up
+        yield user_down
+        yield user_up
+        yield user_up_bytes
+        yield user_conn
+
+        user_map = self._load_user_map(self.user_map_file)
+        if user_map:
+            alias_g = GaugeMetricFamily(
+                "xray_user_alias_info",
+                "User alias map (value=1).",
+                labels=["user", "alias"],
+            )
+            for user, alias in user_map.items():
+                alias_g.add_metric([str(user), str(alias)], 1.0)
+            yield alias_g
+
+        users_online = None
+        if api_data is not None:
+            users_online = self._extract_online_count(api_data)
+        if users_online is None:
+            users_online = float(online_users)
+
+        uptime = None
+        if api_data is not None:
+            uptime = self._extract_uptime(api_data)
+
+        users_online_g = GaugeMetricFamily("xray_users_online", "Online users count.")
+        users_online_g.add_metric([], float(users_online))
+        yield users_online_g
+
+        if uptime is not None:
+            uptime_g = GaugeMetricFamily("xray_uptime_seconds", "Uptime in seconds.")
+            uptime_g.add_metric([], float(uptime))
+            yield uptime_g
+
+        all_vars = GaugeMetricFamily(
+            "xray_var",
+            "All numeric values from Xray debug/vars (path label).",
+            labels=["path"],
+        )
+        for path, val in self._iter_numeric_paths(data):
+            if not path:
+                continue
+            all_vars.add_metric([path], val)
+        yield all_vars
+
+
+def run_exporter():
+    ap = argparse.ArgumentParser(description="Expose Prometheus metrics from Xray /debug/vars JSON.")
+    ap.add_argument(
+        "--source",
+        default=os.getenv("SOURCE"),
+        required=not bool(os.getenv("SOURCE")),
+        help="Путь к JSON-файлу или HTTP(S) URL (или ENV SOURCE).",
+    )
+    ap.add_argument(
+        "--api-source",
+        default=os.getenv("XRAY_API_SOURCE"),
+        help="HTTP(S) URL Xray API для uptime/online (ENV XRAY_API_SOURCE).",
+    )
+    ap.add_argument(
+        "--listen",
+        default=os.getenv("LISTEN", "0.0.0.0:9108"),
+        help="Адрес:порт HTTP (или ENV LISTEN).",
+    )
+    ap.add_argument(
+        "--timeout",
+        type=int,
+        default=int(os.getenv("TIMEOUT", "5")),
+        help="Таймаут чтения, сек (или ENV TIMEOUT).",
+    )
+    ap.add_argument(
+        "--api-timeout",
+        type=int,
+        default=int(os.getenv("XRAY_API_TIMEOUT", "0") or 0),
+        help="Таймаут Xray API, сек (ENV XRAY_API_TIMEOUT; 0 = TIMEOUT).",
+    )
+    ap.add_argument(
+        "--delay-unit",
+        choices=["ms", "s"],
+        default=os.getenv("DELAY_UNIT", "ms"),
+        help='Единицы "delay": ms|s (или ENV DELAY_UNIT).',
+    )
+    ap.add_argument(
+        "--user-map-file",
+        default=os.getenv("USER_MAP_FILE"),
+        help="JSON-файл маппинга user->alias (ENV USER_MAP_FILE).",
+    )
+
+    args = ap.parse_args()
+
+    host, port = _parse_listen(args.listen)
+    api_timeout = args.api_timeout if args.api_timeout and args.api_timeout > 0 else args.timeout
+    logging.info(
+        "Starting Xray exporter: listen=%s:%d source=%s timeout=%ss delay_unit=%s api_source=%s api_timeout=%ss",
+        host,
+        port,
+        args.source,
+        args.timeout,
+        args.delay_unit,
+        args.api_source,
+        api_timeout,
+    )
+
+    REGISTRY.register(
+        XrayCollector(
+            args.source,
+            args.timeout,
+            args.delay_unit,
+            api_source=args.api_source,
+            api_timeout=api_timeout,
+            user_map_file=args.user_map_file,
+        )
+    )
+    start_http_server(port, addr=host)
+    print(f"Serving on http://{host}:{port}/metrics; pulling from {args.source}", flush=True)
+
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":
-    run_exporter(require_source=True)
+    run_exporter()
 
 """
 import argparse, json, time, os, sys, logging, ssl, asyncio

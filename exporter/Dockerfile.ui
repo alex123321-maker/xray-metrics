@@ -9,7 +9,6 @@ RUN pip install --no-cache-dir prometheus-client websockets \
  && apt-get update && apt-get install -y --no-install-recommends curl \
  && rm -rf /var/lib/apt/lists/*
 
-COPY exporter_common.py /app/exporter_common.py
 COPY json_exporter_ui.py /app/json_exporter_ui.py
 
 RUN useradd -m -u 10001 appuser
